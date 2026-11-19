@@ -102,8 +102,9 @@ test('routes use the authenticated user ID and preserve the plan response envelo
   const app = request(authedApp({ planService, contextService: { getContext: record('context') } }));
   const payload = { ...samplePlan(), ownerUserId: 7, userId: 7 };
   const plan = readPlan(payload);
+  const body = { ...payload, version: 3, status: 'completed' };
   const operations = [
-    ['context'], ['list'], ['get', 19], ['create', plan], ['update', 19, 3, plan],
+    ['context'], ['list'], ['get', 19], ['create', plan], ['update', 19, 3, body],
     ['setStatus', 19, 3, 'active'], ['setStatus', 19, 3, 'archived'], ['remove', 19, 3],
     ['setSessionStatus', 19, 27, 3, 'completed']
   ];
@@ -111,7 +112,7 @@ test('routes use the authenticated user ID and preserve the plan response envelo
   for (const [index, [method, path]] of routes.entries()) {
     const [operation] = operations[index];
     const req = app[method](`/api${path}`).set('Authorization', 'Bearer test-account');
-    if (method !== 'get') req.send({ ...payload, version: 3, status: 'completed' });
+    if (method !== 'get') req.send(body);
     const res = await req.expect(operation === 'create' ? 201 : 200);
     assert.deepEqual(res.body, { data: { operation }, meta: {} });
   }

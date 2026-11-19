@@ -42,7 +42,7 @@ function localToday() {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
-function readPlan(body = {}) {
+function readPlan(body = {}, { allowScheduleVariations = false } = {}) {
   if (!body || typeof body !== 'object') throw invalid('Plan body is required');
   const name = text(body.name, 'name', 120, true);
   const type = choice(body.type, sports, 'sport');
@@ -79,8 +79,12 @@ function readPlan(body = {}) {
   if (!sessions.length) throw invalid('At least one session is required');
   if (goalType !== 'custom') {
     const weekdays = weeks[0].days.map(day => Boolean(day.title?.trim() && day.title.trim() !== '休息日'));
-    if (weekdays.filter(Boolean).length < 2 || weekdays.filter(Boolean).length > 4 ||
-        weeks.some(week => week.days.some((day, index) => weekdays[index] !== Boolean(day.title?.trim() && day.title.trim() !== '休息日')))) {
+    const slotIsTraining = day => Boolean(day.title?.trim() && day.title.trim() !== '休息日');
+    if (weeks.some(week => {
+      const count = week.days.filter(slotIsTraining).length;
+      return count < 2 || count > 4 || (!allowScheduleVariations &&
+        week.days.some((day, index) => weekdays[index] !== slotIsTraining(day)));
+    })) {
       throw invalid('Choose the same 2 to 4 training days for each week');
     }
   }

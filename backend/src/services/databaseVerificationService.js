@@ -3,7 +3,10 @@ const config = require('../config');
 
 const REQUIRED_SCHEMA = Object.freeze({
   Users: { columns: ['id', 'role', 'status'] },
-  Activities: { columns: ['id', 'owner_user_id', 'data_source', 'is_manual'] },
+  Activities: {
+    columns: ['id', 'owner_user_id', 'data_source', 'is_manual'],
+    indexes: ['UQ_Activities_owner_garmin']
+  },
   ActivitySummaries: { columns: ['activity_id', 'activity_training_load'] },
   TrackPoints: {
     columns: [
@@ -58,6 +61,16 @@ const REQUIRED_SCHEMA = Object.freeze({
     columns: ['id', 'user_id', 'status', 'expires_at', 'result_plan_id', 'payload_json'],
     indexes: ['UQ_AgentActions_message'],
     foreignKeys: ['FK_AgentActions_conversation_owner', 'FK_AgentActions_message']
+  },
+  TrainingSessionActivities: {
+    columns: ['session_id', 'activity_id', 'link_method', 'comparison_json'],
+    indexes: ['UQ_TrainingSessionActivities_activity'],
+    foreignKeys: ['FK_TrainingSessionActivities_session', 'FK_TrainingSessionActivities_activity']
+  },
+  PlanRevisions: {
+    columns: ['plan_id', 'action_id', 'from_version', 'to_version', 'diff_json', 'reason'],
+    indexes: ['UQ_PlanRevisions_plan_version', 'UQ_PlanRevisions_action'],
+    foreignKeys: ['FK_PlanRevisions_plan']
   },
   LoginAttempts: {
     columns: ['id', 'email', 'user_id', 'ip_address', 'user_agent', 'success', 'failure_reason', 'created_at'],
@@ -146,7 +159,7 @@ async function verifyDatabase({ query = db.query, databaseName = config.db.datab
       throw new DatabaseVerificationError(
         `Database schema is incomplete: ${missingItems.join(', ')}. `
           + 'For a new empty database, run npm run db:init. '
-          + 'Apply npm run db:migrate to install the training plan and agent tables. '
+          + 'Apply npm run db:migrate to install the current planning and coach schema. '
           + 'For an existing database, consult database/README.md before applying migrations.',
         'DATABASE_SCHEMA_INCOMPLETE',
         missing

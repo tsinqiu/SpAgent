@@ -35,11 +35,16 @@ function actionView(row) {
 
 function messageView(row) {
   const { cards, meta } = decode(row.payload);
+  let proposal = null;
+  if (row.actionId) {
+    const payload = decode(row.actionPayload);
+    proposal = row.actionType === 'revise_plan'
+      ? { type: 'plan_diff', revision: payload.revision, action: actionView(row) }
+      : { type: 'plan_draft', plan: payload.plan, action: actionView(row) };
+  }
   return {
     id: row.id, role: row.role, content: row.content, createdAt: row.createdAt, meta,
-    cards: row.actionId
-      ? [...cards, { type: 'plan_draft', plan: decode(row.actionPayload).plan, action: actionView(row) }]
-      : cards
+    cards: proposal ? [...cards, proposal] : cards
   };
 }
 
@@ -114,8 +119,8 @@ async function postMessage(userId, conversationId, { clientMessageId, message })
     if (turn.proposal) {
       await query(`
         INSERT INTO AgentActions (conversation_id, user_id, assistant_message_id, action_type, payload_json, expires_at)
-        VALUES (?, ?, ?, 'create_plan', ?, UTC_TIMESTAMP(3) + INTERVAL 30 MINUTE)`,
-      [conversationId, userId, assistant.insertId, JSON.stringify(turn.proposal)]);
+        VALUES (?, ?, ?, ?, ?, UTC_TIMESTAMP(3) + INTERVAL 30 MINUTE)`,
+      [conversationId, userId, assistant.insertId, turn.proposal.type || 'create_plan', JSON.stringify(turn.proposal)]);
     }
     const title = conversation.title === '训练计划对话' ? Array.from(message).slice(0, 40).join('') : conversation.title;
     await query(
@@ -146,22 +151,30 @@ function changeAction(userId, actionId, confirm) {
       return actionView({ ...row, actionStatus: status });
     }
 
-    const { plan, saveStatus } = decode(row.actionPayload);
-    if (row.actionType !== 'create_plan' || !['active', 'draft'].includes(saveStatus)) {
-      throw new ApiError(409, 'Unsupported pending action', 'AGENT_ACTION_INVALID');
-    }
-    const normalized = readPlan(plan);
+    const payload = decode(row.actionPayload);
     let planId = null;
     let failureCode = null;
-    if (normalized.startDate < localToday()) {
-      failureCode = 'PLAN_START_DATE_PASSED';
-    } else {
+    if (row.actionType === 'revise_plan') {
       try {
-        planId = await trainingPlanService.createInTransaction(connection, userId, normalized, saveStatus);
+        planId = await trainingPlanService.reviseInTransaction(connection, userId, payload.revision, actionId);
       } catch (error) {
-        if (error.code !== 'ACTIVE_TRAINING_PLAN_EXISTS') throw error;
-        failureCode = error.code;
+        if (!['TRAINING_PLAN_VERSION_CONFLICT', 'TRAINING_PLAN_CONFLICT', 'TRAINING_PLAN_NOT_FOUND'].includes(error.code)) throw error;
+        failureCode = error.code === 'TRAINING_PLAN_NOT_FOUND' ? 'TRAINING_PLAN_VERSION_CONFLICT' : error.code;
       }
+    } else if (row.actionType === 'create_plan' && ['active', 'draft'].includes(payload.saveStatus)) {
+      const normalized = readPlan(payload.plan);
+      if (normalized.startDate < localToday()) {
+        failureCode = 'PLAN_START_DATE_PASSED';
+      } else {
+        try {
+          planId = await trainingPlanService.createInTransaction(connection, userId, normalized, payload.saveStatus);
+        } catch (error) {
+          if (error.code !== 'ACTIVE_TRAINING_PLAN_EXISTS') throw error;
+          failureCode = error.code;
+        }
+      }
+    } else {
+      throw new ApiError(409, 'Unsupported pending action', 'AGENT_ACTION_INVALID');
     }
     const status = planId ? 'applied' : 'failed';
     await connection.execute(`

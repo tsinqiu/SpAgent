@@ -159,6 +159,12 @@
           </div>
         </section>
 
+        <ActivityPlanReview
+          v-if="isRunningActivity && Number(authSession.user?.id) === Number(activity.ownerUserId)"
+          :key="activity.id"
+          :activity-id="Number(activity.id)"
+        />
+
         <section v-if="canEditActivity" class="detail-info-group activity-feedback-card">
           <div class="self-review-heading">
             <h2>自评量化表</h2>
@@ -351,6 +357,7 @@ import {
 } from '@/services/activities'
 import { apiClient, resolveMediaUrl } from '@/services/http'
 import { authSession } from '@/stores/authStore'
+import ActivityPlanReview from '@/components/ActivityPlanReview.vue'
 import { formatCalories, formatDistance, formatPaceSeconds } from '@/utils/formatters'
 
 const route = useRoute()

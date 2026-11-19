@@ -1,6 +1,6 @@
 # SpAgent
 
-SpAgent 是从 MotionCare 演进的个人跑步训练管理系统。阶段 2 的计划助手可按训练目标和可训练日生成四周课表，展示训练依据，在用户确认后保存到 MySQL。运动记录、任务周历、健康、Garmin 接入和日常教练仍可使用。后续阶段见 [PRD](docs/PRD.md)。
+SpAgent 是从 MotionCare 演进的个人跑步训练管理系统。计划助手可按训练目标和可训练日生成四周课表，经确认保存到 MySQL。阶段 3 加入 FIT 导入、训练任务匹配、跑后复盘、教练改期或减量、修订历史。后续阶段见 [PRD](docs/PRD.md)。
 
 源码基线为 [MotionCare `673887bedb63460bbf966a703558ee1d5ac55e77`](https://github.com/tsinqiu/MotionCare/tree/673887bedb63460bbf966a703558ee1d5ac55e77)。复用清单和验证结果见 [架构与基线审计](docs/architecture.md)。
 
@@ -41,7 +41,7 @@ SpAgent 是从 MotionCare 演进的个人跑步训练管理系统。阶段 2 的
 
 从「今日」进入「训练计划」。可选择「首次 5 公里」或「规律跑步」四周目标，选择每周 2–4 个训练日，预览后保存。也可导入原有模板，或逐日创建自定义计划。保存后的计划支持编辑、激活和归档。执行中的任务可标为完成或跳过。
 
-已有阶段 0 开发库时，运行 `npm --prefix backend run db:migrate` 即可增量升级。要演示统计数据，先在本地注册专用于演示的账号，再运行 `npm --prefix backend run seed:training-demo -- demo@example.test`，把邮箱换成该账号。页面会标识合成数据，演示记录只归属所选账号。
+已有 SpAgent 开发库时，运行 `npm --prefix backend run db:migrate` 即可增量升级。要演示统计数据，先在本地注册专用于演示的账号，再运行 `npm --prefix backend run seed:training-demo -- demo@example.test`，把邮箱换成该账号。页面会标识合成数据，演示记录只归属所选账号。
 
 ## 使用教练计划助手
 
@@ -60,6 +60,12 @@ npm --prefix frontend run check:course
 新库从空数据开始。在「记录」手动添加一条名为「合成测试跑」的活动，例如 5000 米、1800 秒，然后在运动记录、详情和趋势页核对。无 DeepSeek 密钥时，现有教练使用规则建议。单次跑步预测需要单独训练本地模型，相关脚本见 [后端 API 文档](backend/docs/api.md#ml-models)。
 
 原有前端静态检查和浏览器巡检存在上游遗留失败项，实际验收范围见 [架构与验证](docs/architecture.md)。计划、训练上下文和教练接口见 [API 文档](docs/api.md)。
+
+## 跑后复盘和计划调整
+
+从「我的 → 同步」导入 FIT。符合唯一匹配条件的跑步会自动关联到待训练任务。其他跑步可从运动详情的「分析 → 训练任务复盘」或周历任务手动关联。在任一入口可查看距离、时长和配速差异。
+
+在教练页可以说「把本周四的训练移到周五」或「下一次训练减量 20%」。同一训练周内的改期和适度减量可生成变更对比。确认后通过「修订历史」查看改动，已完成或已关联的任务保留原状。完整演示见 [执行反馈闭环](docs/demo.md)。
 
 ## Garmin、FIT 与本地文件
 

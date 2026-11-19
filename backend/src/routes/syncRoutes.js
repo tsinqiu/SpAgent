@@ -1,4 +1,5 @@
 const express = require('express');
+const multer = require('multer');
 const defaultSyncService = require('../services/syncService');
 const defaultAuthService = require('../services/authService');
 const { ApiError } = require('../errors');
@@ -10,6 +11,7 @@ const PROVIDERS = ['garmin'];
 const SYNC_DIRECTIONS = ['import', 'export', 'two_way'];
 const JOB_TYPES = ['manual_sync', 'scheduled_sync', 'backfill'];
 const JOB_STATUSES = ['queued', 'running', 'success', 'failed', 'skipped'];
+const fitUpload = multer({ limits: { fileSize: 8 * 1024 * 1024, files: 1, fields: 0 } }).single('fit');
 
 function parseProvider(value) {
   if (!PROVIDERS.includes(value)) {
@@ -41,6 +43,10 @@ function parsePaging(query, fallback = 20, max = 100) {
 function createSyncRouter({ syncService = defaultSyncService, authService = defaultAuthService } = {}) {
   const router = express.Router();
   const requireAuth = authenticate(authService);
+
+  router.post('/sync/fit', requireAuth, fitUpload, asyncHandler(async (req, res) => {
+    sendCreated(res, await syncService.importFit(req.file?.buffer, req.user));
+  }));
 
   router.get(
     '/sync/providers',

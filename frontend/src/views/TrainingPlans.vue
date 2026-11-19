@@ -49,13 +49,22 @@
                   <button type="button" :disabled="busy" @click="recordSession(workout, 'completed')">标为完成</button>
                   <button type="button" :disabled="busy" @click="recordSession(workout, 'skipped')">跳过</button>
                 </template>
-                <button v-else type="button" :disabled="busy" @click="recordSession(workout, 'pending')">撤销状态</button>
+                <button v-else-if="!workout.execution" type="button" :disabled="busy" @click="recordSession(workout, 'pending')">撤销状态</button>
               </template>
             </div>
+            <TrainingExecution v-if="workout.execution" :result="workout.execution" show-activity />
+            <TrainingSessionLink
+              v-else-if="workout.id && selectedPlan.type === 'running' && selectedPlan.status === 'active' && workout.status !== 'skipped' && workout.date <= today"
+              :session-id="workout.id"
+              :version="selectedPlan.version"
+              :disabled="busy"
+              @linked="refreshLinkedPlan"
+            />
           </div>
           <Info v-if="workout.note" :size="19" aria-hidden="true" />
         </article>
       </section>
+      <TrainingPlanHistory :key="selectedPlan.id" :plan-id="selectedPlan.id" :version="selectedPlan.version" />
 
       <div class="training-detail-actions">
         <button type="button" @click="closePlan">返回列表</button>
@@ -300,6 +309,9 @@ import {
 
 import { trainingPlanTemplates } from '@/data/trainingPlanTemplates'
 import StateBlock from '@/components/StateBlock.vue'
+import TrainingExecution from '@/components/TrainingExecution.vue'
+import TrainingPlanHistory from '@/components/TrainingPlanHistory.vue'
+import TrainingSessionLink from '@/components/TrainingSessionLink.vue'
 import { formatPaceSeconds } from '@/utils/formatters'
 import {
   changePlanStatus, changeSessionStatus, deleteDraftPlan,
@@ -308,6 +320,7 @@ import {
 
 const weekdayNames = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
 const route = useRoute()
+const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format()
 const runningGoals = [
   { id: 'first_5k', name: '首次 5 公里', description: '用四周建立跑走节奏，为首次完成 5 公里做准备。', minutes: [20, 22, 25, 28] },
   { id: 'regular_running', name: '规律跑步', description: '用四周建立固定的轻松跑习惯。', minutes: [18, 20, 22, 24] },
@@ -563,6 +576,13 @@ function recordSession(session, status) {
   return act(async () => {
     const { id, version } = selectedPlan.value
     displayPlan(await changeSessionStatus(id, session.id, version, status))
+  })
+}
+
+function refreshLinkedPlan() {
+  return act(async () => {
+    displayPlan(await getTrainingPlan(selectedPlan.value.id))
+    showToast('运动已关联')
   })
 }
 

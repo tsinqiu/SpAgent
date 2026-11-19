@@ -13,7 +13,7 @@ from pathlib import Path
 FIT_EPOCH = dt.datetime(1989, 12, 31, tzinfo=dt.timezone.utc)
 
 BASE_TYPES = {
-    0x00: (1, None, None),
+    0x00: (1, "B", 0xFF),
     0x01: (1, "b", -0x80),
     0x02: (1, "B", 0xFF),
     0x03: (2, "h", -0x8000),
@@ -217,6 +217,10 @@ def convert_value(global_num, field_num, value):
         if value == 0x7FFFFFFF:
             return None
         return value * 180 / (2 ** 31)
+    if field_num == 5 and global_num == 18:
+        return SPORTS.get(value, str(value))
+    if field_num == 6 and global_num == 18:
+        return value
     if field_num in (5, 9) and global_num in (18, 19, 20):
         return value / 100
     if field_num in (6, 14, 15, 73, 110, 111, 124, 125) and global_num in (18, 19, 20):
@@ -234,8 +238,6 @@ def convert_value(global_num, field_num, value):
     if field_num == 83 and global_num == 20:
         return value / 10
     if field_num == 0 and global_num == 12:
-        return SPORTS.get(value, str(value))
-    if field_num == 5 and global_num == 18:
         return SPORTS.get(value, str(value))
     if field_num == 0 and global_num == 21:
         return EVENTS.get(value, str(value))
@@ -405,11 +407,9 @@ def rows_for_file(path: Path):
 
     session_values = sessions[0]["values"] if sessions else {}
     first_record = records[0]["values"] if records else {}
-    activity_type = (
-        get_text(sport, "sport")
-        or get_text(session_values, "sport")
-        or infer_type_from_name(path.name)
-    )
+    activity_type = next((value for value in (
+        get_text(session_values, "sport"), get_text(sport, "sport"), infer_type_from_name(path.name)
+    ) if value and value != "generic"), None)
     start_time = as_dt(session_values.get("start_time") or first_record.get("timestamp"))
     activity_key = start_time.isoformat() if start_time else path.stem
     activity_raw = {
@@ -923,7 +923,7 @@ def emit_activity_summary_rows(lines, fit_item, json_item):
     ], zone_rows, 100)
 
 
-def build_sql(activities, include_fit_messages=False, include_raw_json=False):
+def build_sql(activities, include_fit_messages=False, include_raw_json=False, owner_user_id=None, source="garmin_import"):
     lines = [
         "SET FOREIGN_KEY_CHECKS = 1;",
     ]
@@ -931,16 +931,31 @@ def build_sql(activities, include_fit_messages=False, include_raw_json=False):
         fit_item = row.get("fit")
         json_item = row.get("json")
         activity = canonical_activity(row)
+        owner_columns = ""
+        owner_values = ""
+        if owner_user_id is not None:
+            key = activity["key"]
+            if fit_item:
+                key = f"fit:{fit_item['hash']}"
+                if source == "garmin_sync" and not activity["garmin_id"]:
+                    activity["garmin_id"] = fit_item["garmin_id"]
+            activity["key"] = f"user:{owner_user_id}:{key}"
+            if activity["local_start"] is None and activity["start_utc"] is not None:
+                activity["local_start"] = activity["start_utc"] + dt.timedelta(hours=8)
+            if not activity["name"]:
+                activity["name"] = "FIT 跑步" if (activity["type"] or "").endswith("running") else "FIT 运动"
+            owner_columns = ", owner_user_id, data_source"
+            owner_values = f", {sql_int(owner_user_id)}, {sql_string(source)}"
         label = activity["key"]
         lines.extend([
-            f"SELECT 'Importing activity {label}' AS status;",
+            f"SELECT {sql_string('Importing activity ' + label)} AS status;",
             "START TRANSACTION;",
             "SET @activity_id = NULL;",
         ])
         lines.append(
             "INSERT INTO Activities (activity_key, garmin_activity_id, activity_name, activity_type, sport_code, "
             "sub_sport_code, start_time_utc, local_start_time, location_name, start_latitude, start_longitude, "
-            "end_latitude, end_longitude, match_status) VALUES ("
+            f"end_latitude, end_longitude, match_status{owner_columns}) VALUES ("
             + ", ".join([
                 sql_string(activity["key"]),
                 sql_string(activity["garmin_id"]),
@@ -957,7 +972,7 @@ def build_sql(activities, include_fit_messages=False, include_raw_json=False):
                 sql_number(activity["end_longitude"]),
                 sql_string(activity["match_status"]),
             ])
-            + ");"
+            + owner_values + ");"
         )
         lines.append("SET @activity_id = LAST_INSERT_ID();")
         emit_activity_summary_rows(lines, fit_item, json_item)
@@ -973,6 +988,8 @@ def main():
     parser.add_argument("--json-dir", default="database/data/json")
     parser.add_argument("--out", default="database/sql/02_import_data.sql")
     parser.add_argument("--no-json", action="store_true", help="Only import FIT files.")
+    parser.add_argument("--owner-user-id", type=int)
+    parser.add_argument("--source", choices=("garmin_import", "garmin_sync"), default="garmin_import")
     parser.add_argument(
         "--include-fit-messages",
         action="store_true",
@@ -984,12 +1001,18 @@ def main():
         help="Store raw JSON beside structured rows. Useful for traceability, but increases database size.",
     )
     args = parser.parse_args()
+    if args.owner_user_id is not None and not 1 <= args.owner_user_id <= 2147483647:
+        parser.error("--owner-user-id must be a positive user ID")
 
     fit_dir = Path(args.fit_dir)
     fit_files = sorted(fit_dir.glob("*.fit"))
     if not fit_files:
         raise SystemExit(f"No FIT files found in {fit_dir}")
     parsed_fit = [rows_for_file(path) for path in fit_files]
+    if args.no_json and args.owner_user_id is not None and any(
+        not item["sessions"] or not item["activity"].get("start") for item in parsed_fit
+    ):
+        raise SystemExit("The FIT file does not contain a timed activity session")
     parsed_json = []
     if not args.no_json:
         json_dir = Path(args.json_dir)
@@ -1004,6 +1027,8 @@ def main():
             activities,
             include_fit_messages=args.include_fit_messages,
             include_raw_json=args.include_raw_json,
+            owner_user_id=args.owner_user_id,
+            source=args.source,
         ),
         encoding="utf-8",
     )

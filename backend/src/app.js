@@ -42,6 +42,7 @@ function createApp({
   shoeService,
   planService,
   contextService,
+  executionService,
   securityService,
   securityConfig = config.security
 } = {}) {
@@ -103,7 +104,7 @@ function createApp({
   app.use('/api', createActivityRouter(activityService, authService));
   app.use('/api', createStatsRouter(activityService, authService));
   app.use('/api', createTrainingRouter(activityService, authService));
-  app.use('/api', createTrainingPlanRouter({ authService, planService, contextService }));
+  app.use('/api', createTrainingPlanRouter({ authService, planService, contextService, executionService }));
   app.use('/api', createDashboardRouter(activityService, authService));
   app.use('/api', createManualActivityRouter({ manualActivityService, authService }));
   app.use('/api', createWorkoutRouter({ workoutService, authService }));

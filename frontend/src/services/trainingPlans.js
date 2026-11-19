@@ -18,3 +18,14 @@ export const changeSessionStatus = async (id, sessionId, version, status) => (
 export const deleteDraftPlan = async (id, version) => (
   unwrapApiResponse((await apiClient.delete(`${root}/${id}`, { data: { version } })).data).data
 )
+
+export const getPlanRevisions = async (id, before) => (
+  await getEnvelope(`${root}/${id}/revisions`, { params: { before } })
+).data
+export const getSessionActivities = async (id) => (
+  await getEnvelope(`/training-sessions/${id}/activity-candidates`)
+).data
+export const getActivityExecution = async (id) => (await getEnvelope(`/activities/${id}/plan-execution`)).data
+export const linkTrainingActivity = async (id, activityId, version) => (
+  await mutateEnvelope('post', `/training-sessions/${id}/link-activity`, { activityId, version })
+).data

@@ -1,12 +1,14 @@
 const db = require('../db');
 const { ApiError } = require('../errors');
-const { addDays, localToday, weekdayLabels } = require('./trainingPlanInput');
+const { parseDate } = require('../http');
+const { addDays, localToday, readPlan, weekdayLabels } = require('./trainingPlanInput');
+const { executionView } = require('./trainingExecutionService');
 
 const planColumns = `p.id, p.name, p.sport AS type, p.goal_type AS goalType,
   p.goal_description AS goal, p.start_date AS startDate, p.week_phases AS phases,
   p.status, p.version, p.created_at AS createdAt, p.updated_at AS updatedAt`;
-const sessionColumns = `id, scheduled_date AS date, type, title, subtitle, note,
-  distance_m AS distanceM, duration_s AS durationS, status`;
+const sessionColumns = `s.id, s.scheduled_date AS date, s.type, s.title, s.subtitle, s.note,
+  s.distance_m AS distanceM, s.duration_s AS durationS, s.status`;
 const sessionFields = ['type', 'title', 'subtitle', 'note', 'distanceM', 'durationS'];
 
 function missing() {
@@ -72,10 +74,14 @@ async function findPlan(connection, userId, planId, lock = false) {
 
 async function getSessions(connection, planId) {
   const [rows] = await connection.execute(
-    `SELECT ${sessionColumns} FROM TrainingSessions WHERE plan_id = ? ORDER BY scheduled_date`,
+    `SELECT ${sessionColumns}, e.activity_id AS activityId, e.comparison_json AS snapshot, e.created_at AS linkedAt
+      FROM TrainingSessions s LEFT JOIN TrainingSessionActivities e ON e.session_id = s.id
+      WHERE s.plan_id = ? ORDER BY s.scheduled_date`,
     [planId]
   );
-  return rows;
+  return rows.map(({ activityId, snapshot, linkedAt, ...row }) => ({
+    ...row, execution: executionView({ activityId, snapshot, linkedAt })
+  }));
 }
 
 async function detail(connection, userId, planId) {
@@ -136,13 +142,32 @@ function change(userId, planId, version, action) {
   });
 }
 
-function update(userId, planId, version, next) {
+async function writeRevision(connection, plan, diff, reason, actionId = null) {
+  await connection.execute(`
+    INSERT INTO PlanRevisions (plan_id, action_id, from_version, to_version, diff_json, reason)
+    VALUES (?, ?, ?, ?, ?, ?)`, [plan.id, actionId, plan.version, plan.version + 1, JSON.stringify(diff), reason]);
+}
+
+function sessionPreview(session) {
+  if (!session) return null;
+  return { date: session.date, title: session.title, type: session.type, subtitle: session.subtitle,
+    note: session.note, distanceM: session.distanceM, durationS: session.durationS };
+}
+
+function update(userId, planId, version, input) {
   return change(userId, planId, version, async (connection, plan) => {
+    const next = readPlan(input, { allowScheduleVariations: plan.status === 'active' });
     if (plan.status === 'active' && (plan.startDate !== next.startDate || plan.type !== next.type)) {
       throw conflict('An active plan keeps its start date and sport');
     }
     const existing = await getSessions(connection, planId);
     const requested = new Map(next.sessions.map(session => [session.date, session]));
+    const diff = [];
+    const beforeMetadata = { name: plan.name, goal: plan.goal, goalType: plan.goalType, phases: typeof plan.phases === 'string' ? JSON.parse(plan.phases) : plan.phases };
+    const afterMetadata = { name: next.name, goal: next.goal, goalType: next.goalType, phases: next.phases };
+    if (JSON.stringify(beforeMetadata) !== JSON.stringify(afterMetadata)) {
+      diff.push({ kind: 'metadata', before: beforeMetadata, after: afterMetadata });
+    }
     for (const session of existing) {
       const replacement = requested.get(session.date);
       const unchanged = replacement && sessionFields.every(key => session[key] === replacement[key]);
@@ -156,13 +181,18 @@ function update(userId, planId, version, next) {
           UPDATE TrainingSessions SET type = ?, title = ?, subtitle = ?, note = ?, distance_m = ?, duration_s = ?
           WHERE plan_id = ? AND id = ?`, [...sessionFields.map(key => replacement[key]), planId, session.id]);
       }
+      if (!unchanged) diff.push({ kind: 'session', before: sessionPreview(session), after: sessionPreview(replacement) });
       requested.delete(session.date);
     }
     await insertSessions(connection, planId, [...requested.values()]);
+    for (const session of requested.values()) {
+      diff.push({ kind: 'session', before: null, after: sessionPreview(session) });
+    }
     await connection.execute(`
       UPDATE TrainingPlans
       SET name = ?, sport = ?, goal_type = ?, goal_description = ?, start_date = ?, week_phases = ?, version = version + 1
       WHERE id = ? AND user_id = ?`, [...planValues(next), planId, userId]);
+    if (plan.status === 'active' && diff.length) await writeRevision(connection, plan, diff, '用户手动编辑训练计划');
     return detail(connection, userId, planId);
   });
 }
@@ -186,10 +216,14 @@ function setStatus(userId, planId, version, status) {
 function setSessionStatus(userId, planId, sessionId, version, status) {
   return change(userId, planId, version, async (connection, plan) => {
     if (plan.status !== 'active') throw conflict('Activate the plan before recording progress');
-    const [[session]] = await connection.execute(
-      'SELECT status FROM TrainingSessions WHERE id = ? AND plan_id = ?', [sessionId, planId]
-    );
+    const [[session]] = await connection.execute(`
+      SELECT s.status, e.session_id AS linked
+      FROM TrainingSessions s LEFT JOIN TrainingSessionActivities e ON e.session_id = s.id
+      WHERE s.id = ? AND s.plan_id = ?`, [sessionId, planId]);
     if (!session) throw missing();
+    if (session.linked && status !== 'completed') {
+      throw conflict('A linked session stays completed', 'SESSION_ALREADY_LINKED');
+    }
     if (session.status !== status) {
       await connection.execute(
         'UPDATE TrainingSessions SET status = ? WHERE id = ? AND plan_id = ?', [status, sessionId, planId]
@@ -210,4 +244,65 @@ function remove(userId, planId, version) {
   });
 }
 
-module.exports = { list, get, create, createInTransaction, getActive, update, setStatus, setSessionStatus, remove };
+async function revisions(userId, planId, before) {
+  if (!(await db.query('SELECT id FROM TrainingPlans WHERE id = ? AND user_id = ?', [planId, userId])).length) {
+    throw missing();
+  }
+  const rows = await db.query(`
+    SELECT r.id, r.from_version AS fromVersion, r.to_version AS toVersion,
+      r.reason, r.diff_json AS changes, r.created_at AS createdAt
+    FROM PlanRevisions r JOIN TrainingPlans p ON p.id = r.plan_id
+    WHERE r.plan_id = ? AND p.user_id = ? AND (? IS NULL OR r.id < ?)
+    ORDER BY r.id DESC LIMIT 21`, [planId, userId, before, before]);
+  const history = rows.slice(0, 20).map(row => ({
+    ...row, changes: typeof row.changes === 'string' ? JSON.parse(row.changes) : row.changes
+  }));
+  return { revisions: history, nextBefore: rows.length > 20 ? history.at(-1).id : null };
+}
+
+function weekOffset(start, date) {
+  return Math.floor((Date.parse(`${date}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 604800000);
+}
+
+async function reviseInTransaction(connection, userId, revision, actionId) {
+  const plan = await findPlan(connection, userId, revision.planId, true);
+  if (plan.version !== revision.version || plan.status !== 'active' || plan.type !== 'running') {
+    throw conflict('This plan has changed. Generate a new proposal.', 'TRAINING_PLAN_VERSION_CONFLICT');
+  }
+  const sessions = await getSessions(connection, plan.id);
+  const session = sessions.find(item => item.id === revision.sessionId);
+  const { after, reason } = revision;
+  const today = localToday();
+  if (!session || session.status !== 'pending' || session.execution || session.date < today ||
+      typeof reason !== 'string' || !reason.length || reason.length > 500 || !after ||
+      !['move', 'reduce'].includes(revision.kind)) throw conflict('The training session is no longer eligible');
+
+  let date = session.date;
+  let { durationS, distanceM } = session;
+  if (revision.kind === 'move') {
+    date = parseDate(after.date, 'date');
+    if (!date || date < today || date === session.date || weekOffset(plan.startDate, date) !== weekOffset(plan.startDate, session.date) ||
+        sessions.some(item => item.date === date)) throw conflict('The requested date is unavailable');
+  } else {
+    const validReduction = (before, next) => before === null ? next === null : Number.isInteger(next) &&
+      next >= 1 && next <= before && next >= Math.floor(before * 0.7);
+    if (!validReduction(durationS, after.durationS) || !validReduction(distanceM, after.distanceM) ||
+        (durationS === after.durationS && distanceM === after.distanceM)) {
+      throw conflict('The requested training reduction is out of bounds');
+    }
+    ({ durationS, distanceM } = after);
+  }
+  await connection.execute(`
+    UPDATE TrainingSessions SET scheduled_date = ?, duration_s = ?, distance_m = ? WHERE id = ? AND plan_id = ?`,
+  [date, durationS, distanceM, session.id, plan.id]);
+  await connection.execute('UPDATE TrainingPlans SET version = version + 1 WHERE id = ? AND user_id = ?', [plan.id, userId]);
+  await writeRevision(connection, plan, [{
+    kind: 'session', before: sessionPreview(session), after: sessionPreview({ ...session, date, durationS, distanceM })
+  }], reason, actionId);
+  return plan.id;
+}
+
+module.exports = {
+  list, get, create, createInTransaction, getActive, update, setStatus, setSessionStatus, remove,
+  revisions, reviseInTransaction, weekOffset
+};

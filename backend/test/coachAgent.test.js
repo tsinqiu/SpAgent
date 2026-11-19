@@ -150,13 +150,13 @@ test('a valid model intent can select the read tools and leaves plan generation 
   assert.deepEqual(weekdays(plan.sessions.slice(0, 2)), [3, 6]);
 });
 
-test('unsafe goals, adjustment requests and incompatible training days return clarification without a draft', async t => {
+test('unsafe goals, unspecified adjustments and incompatible training days return clarification without a draft', async t => {
   const read = t.mock.fn();
   const complete = t.mock.fn();
   const agent = makeAgent({ readContext: read, readActivePlan: read, complete });
   for (const text of [
     '小腿疼，还想安排四周首次 5 公里训练',
-    '把周四训练挪到周五并调整计划',
+    '想调整正在执行的训练计划',
     '准备首次 5 公里，我每周二有空，每周跑三次'
   ]) {
     const turn = await agent(text, userId);

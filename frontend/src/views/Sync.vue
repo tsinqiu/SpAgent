@@ -1,5 +1,6 @@
 <template>
   <div class="page-stack">
+    <FitActivityImport />
     <section class="sync-hero sync-rq-panel">
       <div class="sync-brand">
         <span class="garmin-mark" aria-hidden="true"><Wifi :size="28" /></span>
@@ -231,6 +232,7 @@ import {
 } from '@lucide/vue'
 
 import StateBlock from '@/components/StateBlock.vue'
+import FitActivityImport from '@/components/FitActivityImport.vue'
 import {
   authorizeGarminAccount,
   createSyncJob,

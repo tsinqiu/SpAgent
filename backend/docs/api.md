@@ -394,11 +394,11 @@ Content-Type: application/json
 }
 ```
 
-Garmin sync uses local sync history to select the start date. A fresh database
-without prior history can finish with zero new activities and skip the remote
-scan. Import filters previously seen Garmin IDs, writes FIT/JSON data into the
-configured MySQL database, assigns imported activities to the current user and
-records `SyncJobs` and `SyncLogs`.
+Garmin sync queries the latest 28 days for a first scan and uses local sync
+history for later scans. Imports assign activities to the current user at
+insert, deduplicate provider IDs and FIT fingerprints within that account,
+and record `SyncJobs` and `SyncLogs`. Supported activities may qualify for
+training-task matching. Standalone FIT upload is documented in the [SpAgent API](../../docs/api.md#执行反馈与修订).
 
 Community read APIs are public; write APIs require login:
 

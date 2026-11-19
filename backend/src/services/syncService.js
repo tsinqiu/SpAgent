@@ -1,10 +1,13 @@
 const { spawn } = require('node:child_process');
 const fs = require('node:fs/promises');
+const os = require('node:os');
 const path = require('node:path');
 const config = require('../config');
 const db = require('../db');
 const { ApiError } = require('../errors');
 const statsCache = require('../cache/statsCache');
+const trainingExecution = require('./trainingExecutionService');
+const { addDays, localToday } = require('./trainingPlanInput');
 
 const PROVIDERS = [
   { provider: 'garmin', name: 'Garmin Connect' }
@@ -239,16 +242,75 @@ function splitSqlStatements(sql) {
   return statements;
 }
 
-async function executeSqlFile(filePath) {
+async function executeSqlFile(filePath, { ownedActivities = false } = {}) {
   const sql = await fs.readFile(filePath, 'utf8');
   const statements = splitSqlStatements(sql);
   const connection = await db.getPool().getConnection();
+  const importedIds = [];
+  let activityId = null;
+  let skipDuplicate = false;
   try {
+    if (ownedActivities) await connection.beginTransaction();
     for (const statement of statements) {
-      await connection.query(statement);
+      if (ownedActivities && /^START TRANSACTION$/i.test(statement)) {
+        activityId = null;
+        await connection.query('SAVEPOINT fit_activity');
+        continue;
+      }
+      if (ownedActivities && /^COMMIT$/i.test(statement)) {
+        if (activityId) importedIds.push(activityId);
+        await connection.query('RELEASE SAVEPOINT fit_activity');
+        skipDuplicate = false;
+        continue;
+      }
+      if (skipDuplicate) continue;
+      const insertingActivity = ownedActivities && /^INSERT INTO Activities\s*\(/i.test(statement);
+      try {
+        const [result] = await connection.query(statement);
+        if (insertingActivity) activityId = result.insertId;
+      } catch (error) {
+        if (!insertingActivity || error.code !== 'ER_DUP_ENTRY') throw error;
+        await connection.query('ROLLBACK TO SAVEPOINT fit_activity');
+        skipDuplicate = true;
+      }
     }
+    if (ownedActivities) await connection.commit();
+    return importedIds;
+  } catch (error) {
+    await connection.rollback();
+    throw error;
   } finally {
     connection.release();
+  }
+}
+
+async function importFit(buffer, user) {
+  const header = buffer?.[0];
+  if (!buffer || buffer.length < 14 || ![12, 14].includes(header) ||
+      buffer.toString('ascii', 8, 12) !== '.FIT' ||
+      buffer.readUInt32LE(4) === 0 || header + buffer.readUInt32LE(4) > buffer.length) {
+    throw new ApiError(400, 'A valid FIT activity file is required', 'INVALID_FIT_FILE');
+  }
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'spagent-fit-'));
+  try {
+    const sqlPath = path.join(directory, 'activity.sql');
+    await fs.writeFile(path.join(directory, 'activity.fit'), buffer);
+    try {
+      await runProcess(config.garmin.pythonPath, [
+        config.garmin.importScriptPath, '--fit-dir', directory, '--no-json', '--out', sqlPath,
+        '--owner-user-id', String(user.id)
+      ], { cwd: PROJECT_ROOT, timeoutMs: 30_000 });
+    } catch (error) {
+      if (error?.code === 'ENOENT' || error?.message === 'process timed out') {
+        throw new ApiError(503, 'FIT parser is unavailable', 'FIT_IMPORT_UNAVAILABLE');
+      }
+      throw new ApiError(422, 'FIT activity could not be read', 'INVALID_FIT_FILE');
+    }
+    const activityIds = await executeSqlFile(sqlPath, { ownedActivities: true });
+    if (activityIds.length) statsCache.clear();
+    return { importedCount: activityIds.length, activityIds, matching: await trainingExecution.autoLinkImported(user.id, activityIds) };
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true }).catch(() => {});
   }
 }
 
@@ -283,19 +345,19 @@ async function getJobById(jobId) {
   return toJob(rows[0]);
 }
 
-async function getExistingGarminIds(startDate) {
+async function getExistingGarminIds(userId, startDate) {
   const rows = await db.query(
     `
       SELECT garmin_activity_id AS garminActivityId
       FROM Activities
-      WHERE garmin_activity_id IS NOT NULL
+      WHERE owner_user_id = ? AND garmin_activity_id IS NOT NULL
         AND (
           start_time_utc IS NULL
           OR start_time_utc >= ?
           OR local_start_time >= ?
         )
     `,
-    [`${startDate} 00:00:00`, `${startDate} 00:00:00`]
+    [userId, `${startDate} 00:00:00`, `${startDate} 00:00:00`]
   );
   return rows.map((row) => String(row.garminActivityId)).filter(Boolean);
 }
@@ -370,17 +432,8 @@ async function runGarminSync(jobId, user, payload) {
     throw new ApiError(400, 'garmin account is not connected', 'GARMIN_ACCOUNT_NOT_CONNECTED');
   }
 
-  const startDate = payload.startDate || await getGarminIncrementalStartDate(user);
-  const endDate = payload.endDate || getTodayText();
-  if (!startDate) {
-    await addLog(jobId, user, 'garmin', 'info', 'no local Garmin sync history found; sync completed without scanning remote activities');
-    return {
-      importedCount: 0,
-      startDate: null,
-      endDate,
-      summary: { skipped: true, reason: 'no_local_sync_history' }
-    };
-  }
+  const endDate = payload.endDate || localToday();
+  const startDate = payload.startDate || await getGarminIncrementalStartDate(user) || addDays(endDate, -27);
 
   const jobDir = path.join(config.garmin.syncWorkDir, `user-${user.id}`, `job-${jobId}`);
   const knownIdsPath = path.join(jobDir, 'known_ids.json');
@@ -389,7 +442,7 @@ async function runGarminSync(jobId, user, payload) {
   const healthSqlPath = path.join(jobDir, 'health_import.sql');
 
   await fs.mkdir(jobDir, { recursive: true });
-  await fs.writeFile(knownIdsPath, JSON.stringify(await getExistingGarminIds(startDate)), 'utf8');
+  await fs.writeFile(knownIdsPath, JSON.stringify(await getExistingGarminIds(user.id, startDate)), 'utf8');
 
   await addLog(jobId, user, 'garmin', 'info', `checking Garmin activities from ${startDate} to ${endDate}`);
   await runProcess(
@@ -464,34 +517,31 @@ async function runGarminSync(jobId, user, payload) {
       '--json-dir',
       path.join(jobDir, 'json'),
       '--out',
-      importSqlPath
+      importSqlPath,
+      '--owner-user-id', String(user.id),
+      '--source', 'garmin_sync'
     ],
     { cwd: PROJECT_ROOT, timeoutMs: config.garmin.timeoutMs }
   );
-  await executeSqlFile(importSqlPath);
-
-  const placeholders = downloadedIds.map(() => '?').join(', ');
-  const updateResult = await db.query(
-    `
-      UPDATE Activities
-      SET owner_user_id = ?, data_source = 'garmin_sync'
-      WHERE garmin_activity_id IN (${placeholders})
-    `,
-    [user.id, ...downloadedIds.map(String)]
-  );
+  const importedIds = await executeSqlFile(importSqlPath, { ownedActivities: true });
   statsCache.clear();
+  const matching = await trainingExecution.autoLinkImported(user.id, importedIds);
+  if (matching.linked || matching.errors) {
+    await addLog(jobId, user, 'garmin', matching.errors ? 'warning' : 'info',
+      `training matches: ${matching.linked}; errors: ${matching.errors}`);
+  }
 
   const weatherService = require('./weatherService');
 
-  if (downloadedIds.length) {
-    const placeholders = downloadedIds.map(() => '?').join(', ');
+  if (importedIds.length) {
+    const placeholders = importedIds.map(() => '?').join(', ');
     const weatherActivities = await db.query(
       `SELECT id, start_latitude AS startLatitude, start_longitude AS startLongitude, local_start_time AS localStartTime
        FROM Activities
-       WHERE garmin_activity_id IN (${placeholders})
+       WHERE owner_user_id = ? AND id IN (${placeholders})
          AND start_latitude IS NOT NULL AND start_longitude IS NOT NULL
          AND (weather_condition IS NULL AND temperature_c IS NULL)`,
-      [...downloadedIds.map(String)]
+      [user.id, ...importedIds]
     );
 
     for (const act of weatherActivities) {
@@ -513,7 +563,7 @@ async function runGarminSync(jobId, user, payload) {
   }
 
   return {
-    importedCount: updateResult.affectedRows || downloadedIds.length,
+    importedCount: importedIds.length,
     healthDaysImported: downloadedHealthDays.length,
     startDate,
     endDate,
@@ -792,6 +842,7 @@ async function listLogs(filters, user) {
 }
 
 module.exports = {
+  importFit,
   PROVIDERS,
   listProviders,
   updateProviderSettings,

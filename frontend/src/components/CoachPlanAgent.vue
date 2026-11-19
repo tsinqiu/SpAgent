@@ -41,6 +41,15 @@
             :error="actionErrors[card.action.id]"
             @decide="decision => changeAction(card.action.id, decision)"
           />
+          <CoachRevisionDraft
+            v-else-if="card.type === 'plan_diff'"
+            :revision="card.revision"
+            :action="card.action"
+            :now="now"
+            :busy="pendingActions.has(card.action.id)"
+            :error="actionErrors[card.action.id]"
+            @decide="decision => changeAction(card.action.id, decision)"
+          />
         </template>
       </article>
     </div>
@@ -57,7 +66,7 @@
         rows="2"
         maxlength="1000"
         aria-label="训练目标"
-        placeholder="例如想完成首次 5 公里，每周二、四、日有空"
+        placeholder="例如每周二、四跑步，或把本周四的训练移到周五"
         @keydown.enter.exact.prevent="submit"
       ></textarea>
       <button type="submit" :disabled="locked || !draft || Boolean(loadError)" aria-label="发送训练目标"><Send :size="18" /></button>
@@ -70,6 +79,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { Check, Send } from '@lucide/vue'
 import CoachPlanDraft from '@/components/CoachPlanDraft.vue'
+import CoachRevisionDraft from '@/components/CoachRevisionDraft.vue'
 import StateBlock from '@/components/StateBlock.vue'
 import {
   createCoachConversation, decideCoachAction, listCoachConversations, listCoachMessages, sendCoachMessage,
@@ -244,7 +254,7 @@ async function changeAction(id, decision) {
   try {
     const action = await decideCoachAction(id, decision)
     for (const message of messages.value) {
-      const card = message.cards.find(item => item.type === 'plan_draft' && item.action.id === id)
+      const card = message.cards.find(item => item.action?.id === id)
       if (card) card.action = action
     }
   } catch (error) {

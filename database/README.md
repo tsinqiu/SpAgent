@@ -2,13 +2,13 @@
 
 ## 初始化新库
 
-按 [项目 README](../README.md#本地启动) 创建空 MySQL 数据库并配置后端 `DB_*`。依次运行 `npm --prefix backend run db:init` 和 `npm --prefix backend run db:migrate`。初始化脚本使用当前连接选择的库，检查已有表、视图、例程和事件，并拒绝在非空库中运行。阶段 0 基线包含 37 张表，阶段 1 增加两张计划表，阶段 2 增加三张会话与审批表。MySQL DDL 会逐条提交，若基线初始化中断，请检查出错原因，并为重试使用新的空开发库。
+按 [项目 README](../README.md#本地启动) 创建空 MySQL 数据库并配置后端 `DB_*`。依次运行 `npm --prefix backend run db:init` 和 `npm --prefix backend run db:migrate`。初始化脚本使用当前连接选择的库，检查已有表、视图、例程和事件，并拒绝在非空库中运行。阶段 0 基线包含 37 张表，后续增量升级后共有 44 张。MySQL DDL 会逐条提交，若基线初始化中断，请检查出错原因，并为重试使用新的空开发库。
 
 `npm --prefix backend run db:verify` 只读校验应用启动依赖。`npm --prefix backend run seed:admin` 按本地配置创建或更新指定管理员账号。阶段 0 不迁移旧库的业务数据。
 
 ## 增量升级
 
-已初始化的 SpAgent 开发库只需运行 `npm --prefix backend run db:migrate`。按次序执行 `02_training_plans.sql` 和 `03_coach_agent.sql`，均通过 `CREATE TABLE IF NOT EXISTS` 新增表，可重新执行。已有账号、真实运动、健康记录和计划继续使用。
+已初始化的 SpAgent 开发库只需运行 `npm --prefix backend run db:migrate`。迁移依次执行 `02_training_plans.sql`、`03_coach_agent.sql` 和 `04_execution_feedback.sql`，可重新执行。阶段 3 新增训练关联和修订记录，并将 Garmin 外部 ID 唯一索引从全局改为按账号。旧活动的归属保留，账号、运动、健康记录和计划继续使用。
 
 在本地注册专用演示账号后，可运行 `npm --prefix backend run seed:training-demo -- demo@example.test`。脚本向指定账号添加最近 28 天的 4 次合成跑步和 3 天的合成恢复汇总，同一天重复执行不会新增重复记录，已有同日健康数据会保留。浏览器可在训练计划页查看两个时间窗的统计及合成标识。
 
@@ -23,7 +23,9 @@ mysql --host=127.0.0.1 --user=spagent_local --password --default-character-set=u
 
 在 MySQL 客户端中，从仓库根目录执行 `source database/sql/02_import_data.sql`。离线 FIT SQL 不填应用用户归属，适用于解析与入库验证；普通用户的活动列表只显示其名下记录。重复执行同一生成文件可能触发唯一键，实验使用独立空库。
 
-`import_garmin_health.py` 接收 `--health-dir`、`--user-id` 和 `--out`，目标库由 MySQL 连接决定。Garmin 在线同步由后端执行登录、下载及解析，对应 token、FIT、JSON 和 SQL 均写入本地目录。空库首次在线同步在缺少起始日时可直接结束，后续须补齐可控首轮导入入口及按用户去重。
+`import_garmin_health.py` 接收 `--health-dir`、`--user-id` 和 `--out`，目标库由 MySQL 连接决定。Garmin 在线同步由后端执行登录、下载及解析，对应 token、FIT、JSON 和 SQL 均写入本地目录。没有同步历史时首次查询最近 28 天。Git 忽略同步文件和 FIT 数据目录。
+
+浏览器 FIT 导入走现有 Python 解析器，单次支持一个不超过 8 MB 的活动文件。服务端按当前账号和 FIT 字节指纹去重，并可匹配同日待训练任务。客户端无需知道数据库用户 ID。可选的演示生成器见 [演示流程](../docs/demo.md)。
 
 ## 旧库
 

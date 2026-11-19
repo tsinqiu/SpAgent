@@ -1,5 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
 const request = require('supertest');
 const createApp = require('../src/app');
 const config = require('../src/config');
@@ -2370,9 +2373,19 @@ test('syncService lists only implemented Garmin sync provider', async () => {
   }
 });
 
-test('syncService Garmin sync skips remote scan when no local Garmin history exists', async () => {
+test('first Garmin sync scans a bounded 28-day window and scopes known IDs to its owner', async () => {
   const originalQuery = db.query;
+  const originalGarmin = { ...config.garmin };
   const logs = [];
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'spagent-garmin-test-'));
+  const helper = path.join(directory, 'mock-download.cjs');
+  await fs.writeFile(helper, `
+    const fs = require('node:fs');
+    const arg = key => process.argv[process.argv.indexOf(key) + 1];
+    const knownIds = JSON.parse(fs.readFileSync(arg('--skip-activity-ids-file'), 'utf8'));
+    fs.writeFileSync(arg('--summary-out'), JSON.stringify({ knownIds, start: arg('--start-date'), end: arg('--end-date') }), 'utf8');
+  `, 'utf8');
+  Object.assign(config.garmin, { pythonPath: process.execPath, downloadScriptPath: helper, syncWorkDir: directory });
 
   db.query = async (sql, params = []) => {
     if (sql.includes('last_sync_at AS lastSyncAt')) {
@@ -2393,19 +2406,26 @@ test('syncService Garmin sync skips remote scan when no local Garmin history exi
       logs.push({ sql, params });
       return { affectedRows: 1 };
     }
+    if (sql.includes('SELECT garmin_activity_id AS garminActivityId')) {
+      assert.match(sql, /owner_user_id = \?/);
+      assert.equal(params[0], 2);
+      return [{ garminActivityId: 'owner-id' }];
+    }
     return [];
   };
 
   try {
-    const result = await syncServiceModule._private.runGarminSync(99, { id: 2 }, {});
+    const result = await syncServiceModule._private.runGarminSync(99, { id: 2 }, { endDate: '2026-06-28' });
 
     assert.equal(result.importedCount, 0);
-    assert.equal(result.startDate, null);
-    assert.deepEqual(result.summary, { skipped: true, reason: 'no_local_sync_history' });
-    assert.equal(logs.length, 1);
-    assert.match(logs[0].params[4], /no local Garmin sync history/);
+    assert.equal(result.startDate, '2026-06-01');
+    assert.deepEqual(result.summary, { knownIds: ['owner-id'], start: '2026-06-01', end: '2026-06-28' });
+    assert.equal(logs.length, 2);
+    assert.match(logs[0].params[4], /checking Garmin activities/);
   } finally {
     db.query = originalQuery;
+    Object.assign(config.garmin, originalGarmin);
+    await fs.rm(directory, { recursive: true, force: true });
   }
 });
 
