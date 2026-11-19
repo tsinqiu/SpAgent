@@ -3,10 +3,12 @@
     class="training-plan-page"
     :class="{
       'training-plan-page--detail': selectedPlan,
-      'training-plan-page--empty': !selectedPlan && plans.length === 0,
+      'training-plan-page--empty': !selectedPlan && !loading && !loadError && plans.length === 0,
     }"
   >
-    <template v-if="selectedPlan">
+    <StateBlock v-if="loadError" title="训练计划加载失败" :message="loadError" tone="danger" action-label="重试" @action="refreshPlans" />
+    <StateBlock v-else-if="loading" title="正在加载训练计划" message="正在读取已保存的训练安排。" />
+    <template v-else-if="selectedPlan">
       <header class="training-detail-hero">
         <span class="training-detail-icon" :style="{ '--plan-color': typeMeta(selectedPlan.type).color }">
           <component :is="typeMeta(selectedPlan.type).icon" :size="32" aria-hidden="true" />
@@ -14,7 +16,8 @@
         <div>
           <h2>{{ selectedPlan.name }}</h2>
           <p>{{ selectedPlan.goal }}</p>
-          <span>{{ selectedDetailWeek.phase }}</span>
+          <p v-if="selectedPlan.weeklyFrequency">每周 {{ selectedPlan.weeklyFrequency }} 次</p>
+          <span>{{ statusLabels[selectedPlan.status] }} · {{ selectedDetailWeek.phase }}</span>
         </div>
       </header>
 
@@ -24,6 +27,7 @@
           :key="week.week"
           type="button"
           :class="{ active: detailActiveWeek === week.week }"
+          :aria-pressed="detailActiveWeek === week.week"
           @click="detailActiveWeek = week.week"
         >
           <Check v-if="detailActiveWeek === week.week" :size="18" aria-hidden="true" />
@@ -32,39 +36,67 @@
       </nav>
 
       <section class="training-detail-workouts" aria-label="本周训练安排">
-        <article v-for="workout in selectedDetailWeek.days" :key="`${selectedDetailWeek.week}-${workout.day}`">
-          <span>{{ workout.day }}</span>
-          <div>
+        <article v-for="workout in selectedDetailWeek.days" :key="workout.date">
+          <span :title="weekdayNames[weekday(workout.date)]">{{ workout.date.slice(5) }}</span>
+          <div class="training-workout-content">
             <strong>{{ workout.title }}</strong>
-            <p>{{ workout.subtitle }}</p>
+            <p v-if="workout.subtitle || workout.distanceM || workout.durationS">{{ sessionSummary(workout) }}</p>
             <small v-if="workout.note">{{ workout.note }}</small>
+            <div v-if="workout.id && (selectedPlan.status === 'active' || workout.status !== 'pending')" class="training-workout-controls">
+              <span>{{ sessionLabels[workout.status] }}</span>
+              <template v-if="selectedPlan.status === 'active'">
+                <template v-if="workout.status === 'pending'">
+                  <button type="button" :disabled="busy" @click="recordSession(workout, 'completed')">标为完成</button>
+                  <button type="button" :disabled="busy" @click="recordSession(workout, 'skipped')">跳过</button>
+                </template>
+                <button v-else type="button" :disabled="busy" @click="recordSession(workout, 'pending')">撤销状态</button>
+              </template>
+            </div>
           </div>
           <Info v-if="workout.note" :size="19" aria-hidden="true" />
         </article>
       </section>
 
       <div class="training-detail-actions">
-        <button type="button" @click="closePlan">Back</button>
-        <button type="button" @click="startPlan(selectedPlan)">
+        <button type="button" @click="closePlan">返回列表</button>
+        <button v-if="selectedPlan.status === 'draft'" class="training-activate-btn" type="button" :disabled="busy" @click="startPlan(selectedPlan)">
           <Play :size="18" fill="currentColor" aria-hidden="true" />
           开始执行
         </button>
+        <button v-if="selectedPlan.status !== 'archived'" type="button" :disabled="busy" @click="editPlan">编辑计划</button>
+        <button v-if="selectedPlan.status === 'active'" type="button" :disabled="busy" @click="archivePlan">归档</button>
+        <button v-if="selectedPlan.status === 'draft'" type="button" :disabled="busy" @click="removePlan">删除草稿</button>
       </div>
     </template>
 
     <template v-else>
+      <section v-if="context" class="training-context" aria-label="近期训练数据">
+        <h2>近期训练</h2>
+        <div class="training-context-windows">
+          <div v-for="window in context.windows" :key="window.days">
+            <strong>近 {{ window.days }} 天</strong>
+            <span>{{ window.running.activityCount ? `${window.running.activityCount} 次跑步 · ${contextDistance(window.running)}` : '暂无跑步记录' }}</span>
+            <small>
+              {{ window.running.trainingLoad == null ? '缺少训练负荷' : `负荷 ${window.running.trainingLoad}` }}
+              · {{ window.recovery.sleepScore.average == null ? '缺少睡眠评分' : `睡眠均分 ${window.recovery.sleepScore.average}` }}
+            </small>
+            <small v-if="window.running.avgPaceSecPerKm != null">{{ formatPaceSeconds(window.running.avgPaceSecPerKm) }} / 公里</small>
+            <small v-if="window.running.demoActivities || Object.values(window.recovery).some(metric => metric.demoSamples)">含合成演示数据</small>
+          </div>
+        </div>
+      </section>
       <section v-if="plans.length === 0" class="training-empty-state">
         <span class="training-empty-icon">
           <CalendarDays :size="76" aria-hidden="true" />
         </span>
         <h2>暂无训练课表</h2>
-        <p>选择数据源或创建一个新的训练课表以开始。</p>
+        <p>导入常用计划，或按自己的日程创建。</p>
       </section>
 
       <template v-else>
         <section class="training-section-title">
           <span aria-hidden="true"></span>
-          <h2>即将开始</h2>
+          <h2>我的训练计划</h2>
         </section>
 
         <section class="training-plan-list" aria-label="已安排训练计划">
@@ -75,7 +107,8 @@
             role="button"
             tabindex="0"
             @click="openPlan(plan)"
-            @keydown.enter.prevent="openPlan(plan)"
+            @keydown.enter.self.prevent="openPlan(plan)"
+            @keydown.space.self.prevent="openPlan(plan)"
           >
           <div class="training-plan-card__accent" aria-hidden="true"></div>
           <div class="training-plan-card__top">
@@ -83,7 +116,7 @@
               <component :is="typeMeta(plan.type).icon" :size="26" aria-hidden="true" />
               {{ typeMeta(plan.type).english }}
             </span>
-            <span class="training-status-pill">已排期</span>
+            <span class="training-status-pill">{{ statusLabels[plan.status] }}</span>
           </div>
 
           <div class="training-plan-card__title">
@@ -107,8 +140,8 @@
           </div>
 
           <div class="training-plan-card__bottom">
-            <span>W{{ plan.currentWeek || 1 }} / {{ plan.weeks.length }}</span>
-            <button type="button" @click.stop="startPlan(plan)">
+            <span>{{ plan.startDate }} · W{{ plan.currentWeek }} / {{ plan.weeks.length }}</span>
+            <button v-if="plan.status === 'draft'" type="button" :disabled="busy" @click.stop="startPlan(plan)">
               <Play :size="18" fill="currentColor" aria-hidden="true" />
               开始执行
             </button>
@@ -122,7 +155,7 @@
           <FolderOpen :size="22" aria-hidden="true" />
           导入常用计划
         </button>
-        <button type="button" class="training-custom-btn" @click="openCustomCreator">
+        <button type="button" class="training-custom-btn" @click="openCustomCreator()">
           <Sparkles :size="22" aria-hidden="true" />
           自定义创建计划
         </button>
@@ -139,11 +172,17 @@
             </button>
           </header>
           <div class="training-template-list">
+            <button v-for="goal in runningGoals" :key="goal.id" type="button" class="training-template-row" @click="openCustomCreator(goal)">
+              <span :style="{ '--plan-color': typeMap.running.color }"><Activity :size="26" aria-hidden="true" /></span>
+              <div><strong>{{ goal.name }}</strong><small>跑步 · 4周</small></div>
+              <Plus :size="22" aria-hidden="true" />
+            </button>
             <button
               v-for="course in trainingPlanTemplates"
               :key="course.id"
               type="button"
               class="training-template-row"
+              :disabled="busy"
               @click="importTemplate(course)"
             >
               <span :style="{ '--plan-color': course.color }">
@@ -162,9 +201,9 @@
 
     <Teleport to=".phone-frame">
       <div v-if="customOpen" class="training-sheet-backdrop" role="presentation" @click.self="closeCustomCreator">
-        <section class="training-sheet training-custom-sheet" role="dialog" aria-modal="true" aria-label="自定义创建计划">
+        <section class="training-sheet training-custom-sheet" role="dialog" aria-modal="true" :aria-label="editing ? '编辑训练计划' : '创建训练计划'">
           <header>
-            <strong>自定义创建计划</strong>
+            <strong>{{ editing ? '编辑训练计划' : '创建训练计划' }}</strong>
             <button type="button" aria-label="关闭" @click="closeCustomCreator">
               <X :size="20" aria-hidden="true" />
             </button>
@@ -173,11 +212,11 @@
           <form v-if="customStep === 1" class="training-custom-form" @submit.prevent="goCustomSchedule">
             <label>
               <span>计划名称</span>
-              <input v-model.trim="customDraft.name" type="text" placeholder="例如 8周入门跑步" required />
+              <input v-model.trim="customDraft.name" type="text" maxlength="120" placeholder="例如 4周入门跑步" required />
             </label>
             <label>
               <span>运动类别</span>
-              <select v-model="customDraft.type">
+              <select v-model="customDraft.type" :disabled="customDraft.goalType !== 'custom' || editing?.status === 'active'">
                 <option value="running">跑步</option>
                 <option value="cycling">骑行</option>
                 <option value="swimming">游泳</option>
@@ -185,8 +224,17 @@
             </label>
             <label>
               <span>周期时间</span>
-              <input v-model.number="customDraft.weekCount" type="number" min="1" max="24" inputmode="numeric" required />
+              <input v-model.number="customDraft.weekCount" type="number" min="1" max="24" inputmode="numeric" :disabled="customDraft.goalType !== 'custom'" required />
             </label>
+            <label><span>开始日期</span><input v-model="customDraft.startDate" type="date" min="2000-01-01" max="9999-01-01" :disabled="editing?.status === 'active'" required /></label>
+            <label><span>训练目标</span><input v-model.trim="customDraft.goal" type="text" maxlength="500" /></label>
+            <fieldset v-if="preset" class="training-weekday-picker">
+              <legend>可训练日（每周选 2–4 天）</legend>
+              <label v-for="(label, index) in weekdayNames" :key="label">
+                <input v-model="trainingDays" type="checkbox" :value="index" />{{ label }}
+              </label>
+              <small>每周 {{ trainingDays.length }} 次</small>
+            </fieldset>
             <button class="training-custom-primary" type="submit">下一步</button>
           </form>
 
@@ -197,21 +245,31 @@
                 :key="week.week"
                 type="button"
                 :class="{ active: customActiveWeek === week.week }"
+                :aria-pressed="customActiveWeek === week.week"
                 @click="customActiveWeek = week.week"
               >
                 W{{ week.week }}
               </button>
             </nav>
             <div class="training-day-editor">
-              <label v-for="(day, index) in activeCustomDays" :key="`${customActiveWeek}-${index}`">
-                <b>{{ day.day }}</b>
-                <input v-model.trim="day.title" type="text" placeholder="名称，例如 轻松跑30分钟" />
-                <input v-model.trim="day.subtitle" type="text" placeholder="小字说明，例如 有氧 · RPE 3-4/10" />
-              </label>
+              <div v-for="day in activeCustomDays" :key="day.date" class="training-day-input">
+                <b>{{ day.date.slice(5) }} {{ weekdayNames[weekday(day.date)] }}</b>
+                <input v-model.trim="day.title" type="text" maxlength="160" :readonly="isRecorded(day)" placeholder="训练名称，留空为休息" :aria-label="`${day.date} 训练名称`" />
+                <template v-if="day.title">
+                  <input v-model.trim="day.subtitle" type="text" maxlength="240" :readonly="isRecorded(day)" placeholder="训练说明" :aria-label="`${day.date} 训练说明`" />
+                  <div class="training-day-targets">
+                    <select v-model="day.type" :disabled="isRecorded(day)" :aria-label="`${day.date} 类型`">
+                      <option value="other">自定义</option><option value="easy">轻松跑</option><option value="aerobic">常规有氧</option><option value="recovery">恢复</option>
+                    </select>
+                    <input v-model.number="day.distanceM" type="number" min="1" max="200000" :readonly="isRecorded(day)" placeholder="米" :aria-label="`${day.date} 距离（米）`" />
+                    <input v-model.number="day.durationS" type="number" min="1" max="86400" :readonly="isRecorded(day)" placeholder="秒" :aria-label="`${day.date} 时长（秒）`" />
+                  </div>
+                </template>
+              </div>
             </div>
             <div class="training-custom-actions">
               <button type="button" @click="customStep = 1">上一步</button>
-              <button type="submit">保存计划</button>
+              <button type="submit" :disabled="busy">{{ busy ? '保存中…' : '保存计划' }}</button>
             </div>
           </form>
         </section>
@@ -222,7 +280,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { showToast } from 'vant'
+import { showConfirmDialog, showToast } from 'vant'
 import {
   Activity,
   Bike,
@@ -240,16 +298,31 @@ import {
 } from '@lucide/vue'
 
 import { trainingPlanTemplates } from '@/data/trainingPlanTemplates'
+import StateBlock from '@/components/StateBlock.vue'
+import { formatPaceSeconds } from '@/utils/formatters'
+import {
+  changePlanStatus, changeSessionStatus, deleteDraftPlan,
+  getTrainingContext, getTrainingPlan, listTrainingPlans, saveTrainingPlan,
+} from '@/services/trainingPlans'
 
-const STORAGE_KEY = 'motioncare-training-plans'
-const dayLabels = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
+const weekdayNames = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+const runningGoals = [
+  { id: 'first_5k', name: '首次 5 公里', description: '用四周建立跑走节奏，为首次完成 5 公里做准备。', minutes: [20, 22, 25, 28] },
+  { id: 'regular_running', name: '规律跑步', description: '用四周建立固定的轻松跑习惯。', minutes: [18, 20, 22, 24] },
+]
+const statusLabels = { draft: '草稿', active: '执行中', archived: '已归档' }
+const sessionLabels = { pending: '待训练', completed: '已完成', skipped: '已跳过' }
 const typeMap = {
   running: { label: '跑步', english: 'RUNNING', icon: Activity, color: '#16a34a' },
   cycling: { label: '骑行', english: 'CYCLING', icon: Bike, color: '#f59e0b' },
   swimming: { label: '游泳', english: 'SWIMMING', icon: Waves, color: '#0ea5e9' },
 }
 
-const plans = ref(loadPlans())
+const plans = ref([])
+const context = ref(null)
+const loading = ref(true)
+const loadError = ref('')
+const busy = ref(false)
 const selectedPlan = ref(null)
 const detailActiveWeek = ref(1)
 const showImportSheet = ref(false)
@@ -257,11 +330,11 @@ const customOpen = ref(false)
 const customStep = ref(1)
 const customActiveWeek = ref(1)
 const customWeeks = ref([])
-const customDraft = reactive({
-  name: '',
-  type: 'running',
-  weekCount: 4,
-})
+const editing = ref(null)
+const preset = ref(null)
+const trainingDays = ref([])
+const customDraft = reactive({})
+let generatedSchedule = ''
 
 const activeCustomDays = computed(() => (
   customWeeks.value.find((week) => week.week === customActiveWeek.value)?.days || []
@@ -294,142 +367,233 @@ function phaseSummary(plan) {
   }))
 }
 
-function loadPlans() {
+function addDays(date, amount) {
+  const day = new Date(`${date}T00:00:00Z`)
+  day.setUTCDate(day.getUTCDate() + amount)
+  return day.toISOString().slice(0, 10)
+}
+
+function weekday(date) {
+  return (new Date(`${date}T00:00:00Z`).getUTCDay() + 6) % 7
+}
+
+function nextMonday() {
+  const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format()
+  return addDays(today, (7 - weekday(today)) % 7)
+}
+
+function contextDistance(running) {
+  return running.distanceM == null ? '缺少跑量' : `${(running.distanceM / 1000).toFixed(1)} 公里`
+}
+
+function sessionSummary(session) {
+  return [
+    session.subtitle,
+    session.distanceM && `${session.distanceM} 米`,
+    session.durationS && `${session.durationS} 秒`,
+  ].filter(Boolean).join(' · ')
+}
+
+function isRecorded(day) {
+  return day.status === 'completed' || day.status === 'skipped'
+}
+
+function errorMessage(error) {
+  switch (error.code) {
+    case 'TRAINING_PLAN_VERSION_CONFLICT': return '该计划已在别处更新，请关闭编辑并刷新后重试。'
+    case 'ACTIVE_TRAINING_PLAN_EXISTS': return '已有执行中的计划，请先归档再开始新的计划。'
+    case 'TRAINING_PLAN_CONFLICT': return '此操作与计划当前状态冲突。请保留已完成或跳过的安排。'
+    case 'INVALID_TRAINING_PLAN': return '请检查训练安排和目标。跑步目标的每周训练日需保持一致。'
+    default: return error.message || '请求失败，请重试。'
+  }
+}
+
+async function refreshPlans() {
+  const selectedId = selectedPlan.value?.id
+  loading.value = true
+  loadError.value = ''
+  void getTrainingContext().then(data => { context.value = data }).catch(() => { context.value = null })
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY)
-    return raw ? JSON.parse(raw) : []
-  } catch {
-    window.localStorage.removeItem(STORAGE_KEY)
-    return []
+    plans.value = await listTrainingPlans()
+    selectedPlan.value = selectedId && plans.value.some(plan => plan.id === selectedId)
+      ? await getTrainingPlan(selectedId) : null
+    if (selectedPlan.value && detailActiveWeek.value > selectedPlan.value.weeks.length) {
+      detailActiveWeek.value = selectedPlan.value.currentWeek
+    }
+  } catch (error) {
+    loadError.value = errorMessage(error)
+  } finally {
+    loading.value = false
   }
 }
 
-function persistPlans() {
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(plans.value))
-}
-
-function refreshPlans() {
-  plans.value = loadPlans()
-  if (selectedPlan.value) {
-    selectedPlan.value = plans.value.find((plan) => plan.id === selectedPlan.value.id) || null
+async function act(work) {
+  if (busy.value) return
+  busy.value = true
+  try {
+    await work()
+  } catch (error) {
+    showToast(errorMessage(error))
+  } finally {
+    busy.value = false
   }
-  showToast('训练计划已刷新')
 }
 
-function normalizeWeeks(weeks) {
-  return weeks.map((week) => ({
-    week: week.week,
-    phase: week.phase,
-    days: week.days.map((day) => ({
-      day: day.day,
-      title: day.title,
-      subtitle: day.subtitle,
-      note: day.note || '',
-    })),
-  }))
+function displayPlan(plan, resetWeek = false) {
+  const exists = plans.value.some(item => item.id === plan.id)
+  plans.value = exists ? plans.value.map(item => item.id === plan.id ? plan : item) : [plan, ...plans.value]
+  if (resetWeek || !selectedPlan.value || selectedPlan.value.id !== plan.id ||
+      detailActiveWeek.value > plan.weeks.length) detailActiveWeek.value = plan.currentWeek
+  selectedPlan.value = plan
 }
 
 function importTemplate(course) {
-  const nextPlan = {
-    id: `template-${course.id}-${Date.now()}`,
-    source: 'template',
-    templateId: course.id,
-    name: course.name,
-    type: course.type,
-    typeLabel: course.typeLabel,
-    goal: course.goal,
-    weeks: normalizeWeeks(course.weeks),
-    currentWeek: 1,
-    progress: 0,
-    status: 'scheduled',
-    createdAt: new Date().toISOString(),
-  }
-  plans.value = [nextPlan, ...plans.value]
-  persistPlans()
-  showImportSheet.value = false
-  showToast('已导入训练计划')
+  return act(async () => {
+    const plan = await saveTrainingPlan(null, {
+      name: course.name, type: course.type, goal: course.goal, startDate: nextMonday(), weeks: course.weeks,
+    })
+    showImportSheet.value = false
+    displayPlan(plan, true)
+    showToast('已导入训练计划')
+  })
 }
 
 function openPlan(plan) {
-  selectedPlan.value = plan
-  detailActiveWeek.value = plan.currentWeek || 1
+  return act(async () => {
+    displayPlan(await getTrainingPlan(plan.id), true)
+  })
 }
 
 function closePlan() {
   selectedPlan.value = null
 }
 
-function openCustomCreator() {
+function openCustomCreator(goal = null) {
+  if (busy.value) return
+  editing.value = null
+  preset.value = goal
+  generatedSchedule = ''
+  trainingDays.value = [1, 3, 5]
+  customWeeks.value = []
+  Object.assign(customDraft, {
+    name: goal?.name || '', type: 'running', goalType: goal?.id || 'custom',
+    goal: goal?.description || '', startDate: nextMonday(), weekCount: 4,
+  })
+  showImportSheet.value = false
   customOpen.value = true
   customStep.value = 1
   customActiveWeek.value = 1
 }
 
 function closeCustomCreator() {
-  customOpen.value = false
+  if (!busy.value) customOpen.value = false
+}
+
+function editPlan() {
+  const { name, type, goalType, goal, startDate, weeks } = selectedPlan.value
+  openCustomCreator()
+  editing.value = selectedPlan.value
+  Object.assign(customDraft, { name, type, goalType, goal, startDate, weekCount: weeks.length })
+  customWeeks.value = weeks.map(week => ({
+    ...week,
+    days: week.days.map(day => day.id ? { ...day } : { date: day.date, title: '', type: 'other' }),
+  }))
 }
 
 function goCustomSchedule() {
   const count = Math.min(Math.max(Number(customDraft.weekCount) || 1, 1), 24)
   customDraft.weekCount = count
+  if (preset.value && (trainingDays.value.length < 2 || trainingDays.value.length > 4)) {
+    showToast('请选择每周 2 至 4 个训练日')
+    return
+  }
+  const signature = `${customDraft.startDate}:${[...trainingDays.value].sort().join(',')}`
   customWeeks.value = Array.from({ length: count }, (_, index) => ({
     week: index + 1,
-    phase: `自定义期 (W${index + 1})`,
-    days: dayLabels.map((day) => ({
-      day,
-      title: '',
-      subtitle: '',
-      note: '',
-    })),
+    phase: customWeeks.value[index]?.phase || `第${index + 1}周`,
+    days: weekdayNames.map((_, dayIndex) => {
+      const date = addDays(customDraft.startDate, index * 7 + dayIndex)
+      if (preset.value && signature !== generatedSchedule) {
+        const minutes = preset.value.minutes[index]
+        return trainingDays.value.includes(weekday(date))
+          ? { date, title: preset.value.id === 'first_5k' ? '轻松跑走' : '轻松跑', type: 'easy', durationS: minutes * 60 }
+          : { date, title: '', type: 'other' }
+      }
+      return { title: '', type: 'other', ...customWeeks.value[index]?.days[dayIndex], date }
+    }),
   }))
+  generatedSchedule = signature
   customActiveWeek.value = 1
   customStep.value = 2
 }
 
 function saveCustomPlan() {
-  const meta = typeMeta(customDraft.type)
-  const weeks = customWeeks.value.map((week) => ({
-    ...week,
-    days: week.days.map((day) => ({
-      ...day,
-      title: day.title || '休息日',
-      subtitle: day.subtitle || '休息日',
-      note: '',
-    })),
-  }))
-  plans.value = [{
-    id: `custom-${Date.now()}`,
-    source: 'custom',
-    name: customDraft.name || '自定义训练计划',
-    type: customDraft.type,
-    typeLabel: meta.label,
-    goal: `${customDraft.weekCount}周自定义训练安排`,
-    weeks,
-    currentWeek: 1,
-    progress: 0,
-    status: 'scheduled',
-    createdAt: new Date().toISOString(),
-  }, ...plans.value]
-  persistPlans()
-  Object.assign(customDraft, { name: '', type: 'running', weekCount: 4 })
-  customWeeks.value = []
-  customOpen.value = false
-  showToast('训练计划已保存')
+  if (!customWeeks.value.some(week => week.days.some(day => day.title && day.title !== '休息日'))) {
+    showToast('请至少填写一项训练')
+    return
+  }
+  return act(async () => {
+    const weeks = customWeeks.value.map(week => ({
+      phase: week.phase,
+      days: week.days.map(day => ({
+        ...day,
+        distanceM: day.distanceM || null,
+        durationS: day.durationS || null,
+      })),
+    }))
+    const plan = await saveTrainingPlan(editing.value?.id, {
+      ...customDraft, weeks, version: editing.value?.version,
+    })
+    customOpen.value = false
+    displayPlan(plan, !editing.value)
+    showToast('训练计划已保存')
+  })
 }
 
 function startPlan(plan) {
-  plans.value = plans.value.map((item) => (
-    item.id === plan.id ? { ...item, status: 'active', progress: item.progress || 0 } : item
-  ))
-  if (selectedPlan.value?.id === plan.id) {
-    selectedPlan.value = plans.value.find((item) => item.id === plan.id) || selectedPlan.value
+  return act(async () => {
+    displayPlan(await changePlanStatus(plan.id, plan.version, 'activate'))
+    showToast('计划已开始')
+  })
+}
+
+function recordSession(session, status) {
+  return act(async () => {
+    const { id, version } = selectedPlan.value
+    displayPlan(await changeSessionStatus(id, session.id, version, status))
+  })
+}
+
+async function archivePlan() {
+  const plan = selectedPlan.value
+  try {
+    await showConfirmDialog({ title: '归档训练计划', message: '归档后仍可查看训练记录。' })
+  } catch {
+    return
   }
-  persistPlans()
-  showToast('计划已开始')
+  await act(async () => {
+    displayPlan(await changePlanStatus(plan.id, plan.version, 'archive'))
+    showToast('计划已归档')
+  })
+}
+
+async function removePlan() {
+  const plan = selectedPlan.value
+  try {
+    await showConfirmDialog({ title: '删除草稿', message: '删除后无法找回该草稿及其任务。' })
+  } catch {
+    return
+  }
+  await act(async () => {
+    await deleteDraftPlan(plan.id, plan.version)
+    plans.value = plans.value.filter(item => item.id !== plan.id)
+    closePlan()
+    showToast('草稿已删除')
+  })
 }
 
 function handleNavAction() {
-  refreshPlans()
+  if (!busy.value && !loading.value) refreshPlans()
 }
 
 function handleShellBack(event) {
@@ -439,6 +603,7 @@ function handleShellBack(event) {
 }
 
 onMounted(() => {
+  refreshPlans()
   window.dispatchEvent(new CustomEvent('motioncare:nav-action', { detail: { icon: RefreshCw, label: '刷新' } }))
   window.addEventListener('motioncare:nav-action-click', handleNavAction)
   window.addEventListener('motioncare:nav-back', handleShellBack)
@@ -821,38 +986,91 @@ onBeforeUnmount(() => {
 }
 
 .training-detail-actions {
-  position: fixed;
-  left: max(18px, calc((100vw - var(--phone-max)) / 2 + 18px));
-  right: max(18px, calc((100vw - var(--phone-max)) / 2 + 18px));
-  bottom: calc(16px + var(--safe-bottom));
+  position: sticky;
+  bottom: 0;
   z-index: 20;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 16px;
+  gap: 8px;
+  padding: 8px 0;
+  background: var(--bg);
 }
 
 .training-detail-actions button {
-  min-height: 58px;
+  min-height: 44px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
   border-radius: 999px;
   font: inherit;
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 900;
-}
-
-.training-detail-actions button:first-child {
   border: 1px solid color-mix(in srgb, var(--text) 34%, transparent);
   background: var(--panel);
   color: var(--text);
 }
 
-.training-detail-actions button:last-child {
+.training-detail-actions .training-activate-btn {
   border: 1px solid var(--app-green);
   background: var(--app-green);
   color: #fff;
+}
+
+.training-context {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--panel);
+}
+
+.training-context h2 {
+  margin: 0 0 10px;
+  font-size: 17px;
+}
+
+.training-context-windows {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.training-context-windows div {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  padding: 9px;
+  border-radius: 12px;
+  background: var(--panel-soft);
+  font-size: 13px;
+}
+
+.training-context-windows small,
+.training-workout-controls span {
+  color: var(--muted);
+}
+
+.training-detail-workouts .training-workout-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 10px;
+  font-size: 13px;
+}
+
+.training-workout-controls button {
+  min-height: 44px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .training-plan-actions {
@@ -905,6 +1123,7 @@ onBeforeUnmount(() => {
   width: 100%;
   max-height: min(78dvh, 680px);
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
   border-radius: 22px;
   border: 1px solid color-mix(in srgb, var(--text) 14%, transparent);
@@ -1011,7 +1230,7 @@ onBeforeUnmount(() => {
 }
 
 .training-custom-form :is(input, select),
-.training-day-editor input {
+.training-day-editor :is(input, select) {
   width: 100%;
   min-width: 0;
   border: 1px solid color-mix(in srgb, var(--app-green) 18%, var(--border));
@@ -1060,24 +1279,47 @@ onBeforeUnmount(() => {
   gap: 10px;
 }
 
-.training-day-editor label {
+.training-day-input {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
-  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
 }
 
 .training-day-editor b {
-  width: 38px;
-  height: 38px;
-  display: grid;
-  place-items: center;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--text) 7%, transparent);
+  font-size: 14px;
+  color: var(--muted);
 }
 
-.training-day-editor input:last-child {
-  grid-column: 2;
+.training-day-targets {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.training-weekday-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.training-weekday-picker label {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+}
+
+.training-weekday-picker input {
+  width: auto;
+}
+
+.training-weekday-picker small {
+  align-self: center;
+  color: var(--muted);
 }
 
 .training-custom-actions {

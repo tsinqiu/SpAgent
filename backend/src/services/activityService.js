@@ -154,13 +154,17 @@ function mapActivitySummary(row) {
   });
 }
 
-function buildActivityFilters({ activityType, startDate, endDate, keyword, source, owner, ownerUserId } = {}) {
+function buildActivityFilters({ activityType, startDate, endDate, keyword, source, owner, ownerUserId, runningOnly } = {}) {
   const where = [];
   const params = [];
 
   if (activityType) {
     where.push('a.activity_type = ?');
     params.push(activityType);
+  }
+
+  if (runningOnly) {
+    where.push("(a.sport_code = 1 OR a.activity_type = 'running' OR RIGHT(a.activity_type, 8) = '_running')");
   }
 
   if (startDate) {
@@ -674,7 +678,7 @@ async function getActivityTypeStats(filters) {
   }));
 }
 
-async function getSummaryStats(filters) {
+async function getSummaryStats(filters, { includeCoverage = false } = {}) {
   const resolvedFilters = {
     ...filters,
     ...resolveRangeDates(filters)
@@ -692,13 +696,22 @@ async function getSummaryStats(filters) {
         ROUND(SUM(js.moving_duration_s), 2) AS totalMovingDurationS,
         ROUND(SUM(js.moving_duration_s) / 60, 1) AS totalMovingMin,
         ROUND(SUM(js.calories), 1) AS totalCalories,
-        ROUND(AVG(js.duration_s / NULLIF(js.distance_m / 1000, 0)), 2) AS avgPaceSecPerKm,
+        ROUND(AVG(${includeCoverage
+          ? 'CASE WHEN js.distance_m > 0 AND js.duration_s > 0 THEN js.duration_s / (js.distance_m / 1000) END'
+          : 'js.duration_s / NULLIF(js.distance_m / 1000, 0)'}), 2) AS avgPaceSecPerKm,
         ROUND(AVG(js.avg_heart_rate_bpm), 1) AS avgHeartRateBpm,
         MAX(js.max_heart_rate_bpm) AS maxHeartRateBpm,
         ROUND(AVG(js.avg_speed_mps), 2) AS avgSpeedMps,
         ROUND(MAX(js.distance_m) / 1000, 2) AS longestDistanceKm,
         ROUND(MIN(js.duration_s / NULLIF(js.distance_m / 1000, 0)), 2) AS fastestPaceSecPerKm,
         ROUND(SUM(js.activity_training_load), 1) AS totalTrainingLoad
+        ${includeCoverage ? `,
+          MAX(DATE(a.local_start_time)) AS latestDate,
+          COUNT(DISTINCT DATE(a.local_start_time)) AS runningDays,
+          COUNT(CASE WHEN a.data_source = 'demo_synthetic' THEN 1 END) AS demoActivities,
+          COUNT(js.distance_m) AS distanceSamples,
+          COUNT(CASE WHEN js.distance_m > 0 AND js.duration_s > 0 THEN 1 END) AS paceSamples,
+          COUNT(js.activity_training_load) AS loadSamples` : ''}
       FROM Activities a
       LEFT JOIN Users u ON u.id = a.owner_user_id
       LEFT JOIN ActivitySummaries js ON js.activity_id = a.id
@@ -707,6 +720,7 @@ async function getSummaryStats(filters) {
     activityFilters.params
   );
 
+  if (includeCoverage) return rows[0];
   const byActivityType = await getActivityTypeStats(resolvedFilters);
   const summary = rows[0] || {};
   const totalCalories = Number(summary.totalCalories || 0);

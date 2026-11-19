@@ -1,6 +1,6 @@
 # SpAgent
 
-SpAgent 是从 MotionCare 演进的个人跑步训练管理系统。当前为阶段 0，提供运动记录、训练统计、身体与训练状态、Garmin 接入和现有 AI 教练基线。四周计划持久化、审批和跑后反馈按 [PRD](docs/PRD.md) 分阶段实现。
+SpAgent 是从 MotionCare 演进的个人跑步训练管理系统。阶段 1 增加了 MySQL 训练计划、任务周历、7/28 天训练上下文和合成演示数据。现有运动记录、健康、Garmin 接入和 AI 教练仍可使用。后续阶段见 [PRD](docs/PRD.md)。
 
 源码基线为 [MotionCare `673887bedb63460bbf966a703558ee1d5ac55e77`](https://github.com/tsinqiu/MotionCare/tree/673887bedb63460bbf966a703558ee1d5ac55e77)。复用清单和验证结果见 [架构与基线审计](docs/architecture.md)。
 
@@ -23,6 +23,7 @@ SpAgent 是从 MotionCare 演进的个人跑步训练管理系统。当前为阶
    npm --prefix backend ci
    npm --prefix frontend ci
    npm --prefix backend run db:init
+   npm --prefix backend run db:migrate
    ```
 
    可用 `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"` 生成本地 JWT 密钥。浏览器可以直接注册普通账号。需要管理员页面时，配置 `ADMIN_EMAIL` 和 `ADMIN_PASSWORD` 后执行 `npm --prefix backend run seed:admin`。
@@ -36,7 +37,13 @@ SpAgent 是从 MotionCare 演进的个人跑步训练管理系统。当前为阶
 
    打开 [本地 Web](http://localhost:5173/) 注册并登录。后端 [健康检查](http://127.0.0.1:8080/api/health) 应返回 `data.database.ok: true`。如果修改后端端口，在 `frontend/.env` 配置 `VITE_API_BASE_URL`；使用 Vite 同源代理时同时设置 `VITE_DEV_PROXY_TARGET`。
 
-## 验证基线
+## 使用训练计划
+
+从「今日」进入「训练计划」。可选择「首次 5 公里」或「规律跑步」四周目标，选择每周 2–4 个训练日，预览后保存。也可导入原有模板，或逐日创建自定义计划。保存后的计划支持编辑、激活和归档。执行中的任务可标为完成或跳过。
+
+已有阶段 0 开发库时，运行 `npm --prefix backend run db:migrate` 即可增量升级。要演示统计数据，先在本地注册专用于演示的账号，再运行 `npm --prefix backend run seed:training-demo -- demo@example.test`，把邮箱换成该账号。页面会标识合成数据，演示记录只归属所选账号。
+
+## 验证
 
 ```powershell
 npm --prefix backend test
@@ -46,7 +53,7 @@ npm --prefix frontend run check:course
 
 新库从空数据开始。在「记录」手动添加一条名为「合成测试跑」的活动，例如 5000 米、1800 秒，然后在运动记录、详情和趋势页核对。无 DeepSeek 密钥时，现有教练使用规则建议。单次跑步预测需要单独训练本地模型，相关脚本见 [后端 API 文档](backend/docs/api.md#ml-models)。
 
-原有前端静态检查和浏览器巡检存在上游遗留失败项，实际验收范围见 [阶段 0 验证结果](docs/architecture.md#阶段-0-验证结果)。
+原有前端静态检查和浏览器巡检存在上游遗留失败项，实际验收范围见 [架构与验证](docs/architecture.md)。计划和训练上下文契约见 [阶段 1 API](docs/api.md)。
 
 ## Garmin、FIT 与本地文件
 

@@ -11,6 +11,7 @@ const defaultHealthService = require('./services/healthService');
 const createActivityRouter = require('./routes/activityRoutes');
 const createStatsRouter = require('./routes/statsRoutes');
 const createTrainingRouter = require('./routes/trainingRoutes');
+const createTrainingPlanRouter = require('./routes/trainingPlanRoutes');
 const createDashboardRouter = require('./routes/dashboardRoutes');
 const createMlRouter = require('./routes/mlRoutes');
 const createAiRouter = require('./routes/aiRoutes');
@@ -37,6 +38,8 @@ function createApp({
   exploreService,
   settingsService,
   shoeService,
+  planService,
+  contextService,
   securityService,
   securityConfig = config.security
 } = {}) {
@@ -98,6 +101,7 @@ function createApp({
   app.use('/api', createActivityRouter(activityService, authService));
   app.use('/api', createStatsRouter(activityService, authService));
   app.use('/api', createTrainingRouter(activityService, authService));
+  app.use('/api', createTrainingPlanRouter({ authService, planService, contextService }));
   app.use('/api', createDashboardRouter(activityService, authService));
   app.use('/api', createManualActivityRouter({ manualActivityService, authService }));
   app.use('/api', createWorkoutRouter({ workoutService, authService }));

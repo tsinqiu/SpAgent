@@ -12,7 +12,7 @@ const statsCache = require('../cache/statsCache');
 const { sendData } = require('../response');
 
 const OWNER_FILTERS = ['all', 'admin', 'mine'];
-const SOURCE_FILTERS = ['garmin_import', 'manual_upload', 'live_workout'];
+const SOURCE_FILTERS = ['garmin_import', 'manual_upload', 'live_workout', 'garmin_sync', 'demo_synthetic'];
 const SUMMARY_RANGES = ['month', 'year', 'all'];
 const TREND_RANGES = ['42d', '3m', '6m', '1y', '2y'];
 const TRAINING_RANGES = TREND_RANGES;

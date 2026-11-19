@@ -116,6 +116,22 @@ async function getHealthTrends(userId, metric, range) {
   return rows.map((r) => ({ date: r.date, value: r.value }));
 }
 
+async function getRecoveryDays(userId, startDate, endDate) {
+  const [sleep, daily] = await Promise.all([
+    db.query(`
+      SELECT sleep_date AS date, sleep_score AS sleepScore, duration_s AS sleepDurationS, avg_hrv AS hrv,
+        JSON_UNQUOTE(JSON_EXTRACT(raw_json, '$.source')) = 'demo_synthetic' AS isDemo
+      FROM SleepSummaries WHERE user_id = ? AND sleep_date BETWEEN ? AND ? ORDER BY sleep_date DESC`,
+    [userId, startDate, endDate]),
+    db.query(`
+      SELECT summary_date AS date, resting_heart_rate_bpm AS restingHeartRate,
+        JSON_UNQUOTE(JSON_EXTRACT(raw_json, '$.source')) = 'demo_synthetic' AS isDemo
+      FROM DailyHealthSummaries WHERE user_id = ? AND summary_date BETWEEN ? AND ? ORDER BY summary_date DESC`,
+    [userId, startDate, endDate])
+  ]);
+  return { sleep, daily };
+}
+
 async function getSamples(userId, type, date, source) {
   const sampleMap = {
     'heart-rate': { table: 'HeartRateSamples', timeCol: 'sample_time_utc', valueCol: 'heart_rate_bpm' },
@@ -266,6 +282,7 @@ async function getLatestCyclingFtp(userId) {
 }
 
 module.exports = {
+  getRecoveryDays,
   checkDatabase,
   getTodayHealth,
   getHealthTrends,

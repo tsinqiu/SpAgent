@@ -34,7 +34,7 @@ const ACTIVITY_SORT_FIELDS = [
   'avg_pace',
   'activity_training_load'
 ];
-const SOURCE_FILTERS = ['garmin_import', 'manual_upload', 'live_workout'];
+const SOURCE_FILTERS = ['garmin_import', 'manual_upload', 'live_workout', 'garmin_sync', 'demo_synthetic'];
 
 fs.mkdirSync(config.uploads.activityImagesDir, { recursive: true });
 

@@ -70,7 +70,7 @@ Supported query parameters:
 - `activity_type`: activity type such as `running`; `all` is treated as no activity-type filter for frontend compatibility.
 - `start_date`, `end_date`: local date range in `YYYY-MM-DD`; if both are provided, the range must be 1095 days or less.
 - `keyword`: searches activity name, location, activity type, activity key, and Garmin activity id; maximum length is 100 characters.
-- `source`: `garmin_import`, `manual_upload`, or `live_workout`.
+- `source`: `garmin_import`, `garmin_sync`, `manual_upload`, `live_workout`, or `demo_synthetic`.
 - `owner`: defaults to `mine` for every logged-in user. Normal users are always restricted to `mine`; administrators may explicitly request `all` or `admin` in management views.
 - `sort_by`: `local_start_time`, `distance_m`, `duration_s`, `avg_heart_rate_bpm`, `max_heart_rate_bpm`, `avg_pace`, `activity_training_load`.
 - `sort_order`: `asc` or `desc`.
@@ -258,6 +258,9 @@ Zone 5: 高强度
 Personal bests are grouped into `steps`, `running`, `cycling`, `swimming`, and `overall`. Groups without reliable data return an empty array; the backend does not synthesize fake records.
 
 ## Training
+
+Database-backed plans, scheduled sessions and 7/28-day context are documented in
+[Stage 1 API](../../docs/api.md).
 
 ```text
 GET /api/training/load-balance?range=3m&end_date=2026-06-10
@@ -725,5 +728,6 @@ Errors return:
 ## Database Setup
 
 Follow the [database setup](../../database/README.md) for a fresh SpAgent database.
-`npm run db:init` creates the baseline schema in the configured empty database.
+`npm run db:init` creates the baseline schema in the configured empty database,
+and `npm run db:migrate` adds the current training-plan tables.
 `npm start` verifies the required schema before starting the API.

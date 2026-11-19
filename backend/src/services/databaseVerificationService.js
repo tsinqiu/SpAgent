@@ -34,6 +34,16 @@ const REQUIRED_SCHEMA = Object.freeze({
   DailyHealthSummaries: { columns: ['user_id', 'summary_date'] },
   SleepSummaries: { columns: ['user_id', 'sleep_date'] },
   TrainingStatusSnapshots: { columns: ['user_id', 'snapshot_date'] },
+  TrainingPlans: {
+    columns: ['id', 'user_id', 'start_date', 'week_phases', 'status', 'version', 'active_owner_id'],
+    indexes: ['UQ_TrainingPlans_active_owner'],
+    foreignKeys: ['FK_TrainingPlans_user']
+  },
+  TrainingSessions: {
+    columns: ['id', 'plan_id', 'scheduled_date', 'status'],
+    indexes: ['UQ_TrainingSessions_plan_date'],
+    foreignKeys: ['FK_TrainingSessions_plan']
+  },
   LoginAttempts: {
     columns: ['id', 'email', 'user_id', 'ip_address', 'user_agent', 'success', 'failure_reason', 'created_at'],
     indexes: ['IX_LoginAttempts_email_ip_time', 'IX_LoginAttempts_ip_time'],
@@ -121,6 +131,7 @@ async function verifyDatabase({ query = db.query, databaseName = config.db.datab
       throw new DatabaseVerificationError(
         `Database schema is incomplete: ${missingItems.join(', ')}. `
           + 'For a new empty database, run npm run db:init. '
+          + 'Apply npm run db:migrate to install the training plan tables. '
           + 'For an existing database, consult database/README.md before applying migrations.',
         'DATABASE_SCHEMA_INCOMPLETE',
         missing
