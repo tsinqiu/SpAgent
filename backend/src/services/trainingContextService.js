@@ -27,6 +27,7 @@ async function getContext(userId, endDate = localToday()) {
       days, startDate, endDate,
       running: {
         activityCount: runs.activityCount, runningDays: runs.runningDays, distanceM: runs.totalDistanceM,
+        durationS: runs.totalDurationS,
         avgPaceSecPerKm: runs.avgPaceSecPerKm, trainingLoad: runs.totalTrainingLoad,
         latestDate: runs.latestDate, demoActivities: runs.demoActivities,
         coverage: { distance: runs.distanceSamples, pace: runs.paceSamples, load: runs.loadSamples }

@@ -99,15 +99,32 @@ function insertSessions(connection, planId, sessions) {
     VALUES ?`, [sessions.map(session => [planId, session.date, ...sessionFields.map(key => session[key])])]);
 }
 
+async function createInTransaction(connection, userId, plan, status = 'draft') {
+  let result;
+  try {
+    [result] = await connection.execute(`
+      INSERT INTO TrainingPlans
+      (user_id, name, sport, goal_type, goal_description, start_date, week_phases, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [userId, ...planValues(plan), status]);
+  } catch (error) {
+    if (error.code !== 'ER_DUP_ENTRY' || status !== 'active') throw error;
+    throw conflict('Another plan is currently active', 'ACTIVE_TRAINING_PLAN_EXISTS');
+  }
+  await insertSessions(connection, result.insertId, plan.sessions);
+  return result.insertId;
+}
+
 function create(userId, plan) {
   return db.transaction(async connection => {
-    const [result] = await connection.execute(`
-      INSERT INTO TrainingPlans
-      (user_id, name, sport, goal_type, goal_description, start_date, week_phases)
-      VALUES (?, ?, ?, ?, ?, ?, ?)`, [userId, ...planValues(plan)]);
-    await insertSessions(connection, result.insertId, plan.sessions);
-    return detail(connection, userId, result.insertId);
+    const id = await createInTransaction(connection, userId, plan);
+    return detail(connection, userId, id);
   });
+}
+
+async function getActive(userId) {
+  const [plan] = await db.query(`
+    SELECT id, name, version FROM TrainingPlans WHERE user_id = ? AND status = 'active' LIMIT 1`, [userId]);
+  return plan || null;
 }
 
 function change(userId, planId, version, action) {
@@ -193,4 +210,4 @@ function remove(userId, planId, version) {
   });
 }
 
-module.exports = { list, get, create, update, setStatus, setSessionStatus, remove };
+module.exports = { list, get, create, createInTransaction, getActive, update, setStatus, setSessionStatus, remove };

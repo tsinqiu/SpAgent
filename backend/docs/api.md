@@ -79,6 +79,8 @@ Supported query parameters:
 
 ## AI Assistant
 
+The persistent plan assistant uses the [SpAgent coach API](../../docs/api.md#教练计划助手).
+
 All AI endpoints require:
 
 ```text

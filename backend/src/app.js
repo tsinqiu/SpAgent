@@ -15,6 +15,7 @@ const createTrainingPlanRouter = require('./routes/trainingPlanRoutes');
 const createDashboardRouter = require('./routes/dashboardRoutes');
 const createMlRouter = require('./routes/mlRoutes');
 const createAiRouter = require('./routes/aiRoutes');
+const createCoachAgentRouter = require('./routes/coachAgentRoutes');
 const createManualActivityRouter = require('./routes/manualActivityRoutes');
 const createWorkoutRouter = require('./routes/workoutRoutes');
 const createSyncRouter = require('./routes/syncRoutes');
@@ -30,6 +31,7 @@ function createApp({
   activityService,
   mlService,
   aiService,
+  agentService,
   authService,
   manualActivityService,
   workoutService,
@@ -107,6 +109,7 @@ function createApp({
   app.use('/api', createWorkoutRouter({ workoutService, authService }));
   app.use('/api', createMlRouter(mlService, authService));
   app.use('/api', createAiRouter({ aiService, authService }));
+  app.use('/api', createCoachAgentRouter({ agentService, authService }));
   app.use('/api', createSyncRouter({ syncService, authService }));
   app.use('/api', createCommunityRouter({ communityService, authService }));
   app.use('/api', createExploreRouter(exploreService, authService));

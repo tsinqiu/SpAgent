@@ -1,4 +1,4 @@
-# 阶段 1 接口
+# SpAgent 计划与教练接口
 
 基础地址为 `/api`。以下接口从 Bearer JWT 获取当前用户。返回形式为 `{ "data": ..., "meta": {} }`，错误为 `{ "error": { "code": "...", "message": "..." } }`。
 
@@ -48,3 +48,20 @@
 
 - `running` 含跑步次数、跑步日数、总距离（米）、平均配速（秒每公里）、负荷、最近观测日期，以及各指标的样本数和合成记录数。配速是有效单次配速的算术平均。
 - `recovery` 分别给出睡眠评分、睡眠时长（秒）、HRV 与静息心率的均值、样本数、最近观测日期和合成样本数。没有观测的指标返回 `null`。
+
+## 教练计划助手
+
+| 方法与路径 | 行为 |
+| --- | --- |
+| `GET /agent/conversations?before=...` | 返回本人的会话与 `nextBefore`，每页最多 20 条 |
+| `POST /agent/conversations` | 创建一个会话，返回 201 |
+| `GET /agent/conversations/:id/messages?before=...` | 返回本会话的消息与 `nextBefore`，每页最多 40 条，从旧到新排序 |
+| `POST /agent/conversations/:id/messages` | 提交一轮消息，返回本轮用户和教练消息 |
+| `POST /agent/actions/:id/confirm` | 确认待审批草案，返回动作的实际状态和已保存计划 ID |
+| `POST /agent/actions/:id/reject` | 拒绝待审批草案，返回动作状态 |
+
+发送消息时，客户端填入 `message`（1–1000 字符）和 `clientMessageId`（UUID v4）。因网络问题重试时复用 UUID 和内容。相同消息会重放已有结果，复用 UUID 提交不同内容返回 409。消息的 `cards` 中有 `tool_status`、`evidence`、`plan_draft`，回复正文使用 `content`。教练会话创建与消息提交合并限制为每账号每分钟 20 次。
+
+草案在会话中保存为待审批动作，有效期 30 分钟。动作状态可为 `proposed`、`applied`、`rejected`、`expired`、`failed`。确认和拒绝使用登录账号归属与数据库锁；重复处理返回已有状态。只有 `applied` 返回已创建计划的 `planId`。如果一个预定直接启用的草案遇到另一个已启用计划，服务端返回 `failed` 和 `ACTIVE_TRAINING_PLAN_EXISTS`，已有计划继续执行。已有执行中计划时生成的新草案，确认后保存为独立草稿。读取或操作他人会话、动作返回 404。
+
+默认执行本地规则。可选模型只接收本轮输入文本，最多一次结构化分类。模型输出经过字段校验和工具白名单检查。只有 `get_training_context`、`get_active_plan` 可读账号数据，规则生成器生成四周候选，再通过训练计划校验。模型调用失败或返回无效输出时使用本地规则。实际运动关联、自然语言调整现行计划和修订历史属于阶段 3。

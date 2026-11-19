@@ -3,19 +3,20 @@ const mysql = require('mysql2/promise');
 const config = require('../src/config');
 
 async function main() {
-  const filePath = process.argv[2];
-  if (!filePath) {
-    throw new Error('Usage: node scripts/applyMigration.js <sql-file>');
+  const filePaths = process.argv.slice(2);
+  if (!filePaths.length) {
+    throw new Error('Usage: node scripts/applyMigration.js <sql-file> [sql-file ...]');
   }
 
-  const sql = fs.readFileSync(filePath, 'utf8');
   const connection = await mysql.createConnection({
     ...config.db,
     multipleStatements: true
   });
 
   try {
-    await connection.query(sql);
+    for (const filePath of filePaths) {
+      await connection.query(fs.readFileSync(filePath, 'utf8'));
+    }
   } finally {
     await connection.end();
   }

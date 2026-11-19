@@ -887,7 +887,7 @@ function deepSeekEndpoint() {
   return `${config.ai.deepseekBaseUrl.replace(/\/+$/, '')}/chat/completions`;
 }
 
-async function callDeepSeekCompletion(messages, { temperature = 0.4 } = {}) {
+async function callDeepSeekCompletion(messages, { temperature = 0.4, jsonMode = false, maxTokens, deadlineMs } = {}) {
   if (!config.ai.deepseekApiKey) {
     throw new ApiError(503, 'DeepSeek API key is not configured', 'AI_PROVIDER_UNAVAILABLE');
   }
@@ -896,7 +896,7 @@ async function callDeepSeekCompletion(messages, { temperature = 0.4 } = {}) {
   }
 
   const controller = new AbortController();
-  const timeoutMs = Math.max(1000, config.ai.timeoutMs - CHAT_TIMEOUT_BUFFER_MS);
+  const timeoutMs = Math.min(deadlineMs ?? Infinity, Math.max(1000, config.ai.timeoutMs - CHAT_TIMEOUT_BUFFER_MS));
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
@@ -910,6 +910,8 @@ async function callDeepSeekCompletion(messages, { temperature = 0.4 } = {}) {
         model: config.ai.deepseekModel,
         messages,
         temperature,
+        ...(jsonMode && { response_format: { type: 'json_object' } }),
+        ...(maxTokens && { max_tokens: maxTokens }),
         stream: false
       }),
       signal: controller.signal
@@ -1257,6 +1259,7 @@ module.exports = {
   submitFeedback,
   submitMorningReadiness,
   analyzeActivity,
+  callDeepSeekCompletion,
   __private: {
     buildCoachSystemPrompt,
     buildDailyBrief,

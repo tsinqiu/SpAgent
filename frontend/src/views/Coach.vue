@@ -45,6 +45,13 @@
           <h2>教练</h2>
         </div>
       </div>
+      <div class="coach-chat-modes" aria-label="教练对话模式">
+        <button type="button" :aria-pressed="chatMode === 'plan'" @click="chatMode = 'plan'">计划助手</button>
+        <button type="button" :aria-pressed="chatMode === 'advice'" @click="chatMode = 'advice'">日常问答</button>
+      </div>
+
+      <CoachPlanAgent v-show="chatMode === 'plan'" />
+      <template v-if="chatMode === 'advice'">
 
       <StateBlock
         v-if="aiLoading"
@@ -94,6 +101,7 @@
           </button>
         </form>
         <p v-if="chatError" class="form-error">建议生成失败，请稍后重试。</p>
+      </template>
       </template>
     </section>
 
@@ -201,6 +209,7 @@ import { computed, nextTick, onMounted, ref } from 'vue'
 import { Check, Send } from '@lucide/vue'
 
 import StateBlock from '@/components/StateBlock.vue'
+import CoachPlanAgent from '@/components/CoachPlanAgent.vue'
 import {
   getAiHealth,
   getDailyBrief,
@@ -229,6 +238,7 @@ const willingnessOptions = [
   { label: '按计划', value: 'normal' },
 ]
 const messages = ref([])
+const chatMode = ref('plan')
 const recommendations = ref([])
 const modelHealth = ref(null)
 const dailyBrief = ref(null)
@@ -378,6 +388,7 @@ function loadCoach() {
 }
 
 async function ask(text) {
+  chatMode.value = 'advice'
   draft.value = text
   await submit()
 }
@@ -455,6 +466,28 @@ onMounted(loadCoach)
 </script>
 
 <style scoped>
+.coach-chat-modes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.coach-chat-modes button {
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--muted);
+  background: var(--panel);
+  font: inherit;
+  font-weight: 750;
+}
+
+.coach-chat-modes button[aria-pressed="true"] {
+  color: var(--text);
+  border-color: var(--app-green);
+  background: color-mix(in srgb, var(--app-green) 12%, var(--panel));
+}
+
 .ai-mode-pill {
   flex: 0 0 auto;
   display: inline-flex;

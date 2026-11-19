@@ -151,6 +151,7 @@ const config = {
     timeoutMs: parseInteger(process.env.ML_TIMEOUT_MS, 10000)
   },
   ai: {
+    agentUseDeepseek: process.env.AGENT_USE_DEEPSEEK === 'true',
     provider: (process.env.AI_PROVIDER || 'auto').toLowerCase(),
     providerOrder: parseProviderOrder(process.env.AI_PROVIDER_ORDER),
     model: process.env.AI_MODEL || process.env.AI_DEEPSEEK_MODEL || process.env.AI_OLLAMA_MODEL || 'deepseek-chat',

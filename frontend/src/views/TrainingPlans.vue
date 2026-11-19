@@ -280,6 +280,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { showConfirmDialog, showToast } from 'vant'
 import {
   Activity,
@@ -306,6 +307,7 @@ import {
 } from '@/services/trainingPlans'
 
 const weekdayNames = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+const route = useRoute()
 const runningGoals = [
   { id: 'first_5k', name: '首次 5 公里', description: '用四周建立跑走节奏，为首次完成 5 公里做准备。', minutes: [20, 22, 25, 28] },
   { id: 'regular_running', name: '规律跑步', description: '用四周建立固定的轻松跑习惯。', minutes: [18, 20, 22, 24] },
@@ -602,11 +604,13 @@ function handleShellBack(event) {
   closePlan()
 }
 
-onMounted(() => {
-  refreshPlans()
+onMounted(async () => {
   window.dispatchEvent(new CustomEvent('motioncare:nav-action', { detail: { icon: RefreshCw, label: '刷新' } }))
   window.addEventListener('motioncare:nav-action-click', handleNavAction)
   window.addEventListener('motioncare:nav-back', handleShellBack)
+  await refreshPlans()
+  const linkedPlan = plans.value.find(plan => String(plan.id) === route.query.planId)
+  if (linkedPlan) await openPlan(linkedPlan)
 })
 
 onBeforeUnmount(() => {

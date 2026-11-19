@@ -1,6 +1,6 @@
 # SpAgent
 
-SpAgent 是从 MotionCare 演进的个人跑步训练管理系统。阶段 1 增加了 MySQL 训练计划、任务周历、7/28 天训练上下文和合成演示数据。现有运动记录、健康、Garmin 接入和 AI 教练仍可使用。后续阶段见 [PRD](docs/PRD.md)。
+SpAgent 是从 MotionCare 演进的个人跑步训练管理系统。阶段 2 的计划助手可按训练目标和可训练日生成四周课表，展示训练依据，在用户确认后保存到 MySQL。运动记录、任务周历、健康、Garmin 接入和日常教练仍可使用。后续阶段见 [PRD](docs/PRD.md)。
 
 源码基线为 [MotionCare `673887bedb63460bbf966a703558ee1d5ac55e77`](https://github.com/tsinqiu/MotionCare/tree/673887bedb63460bbf966a703558ee1d5ac55e77)。复用清单和验证结果见 [架构与基线审计](docs/architecture.md)。
 
@@ -43,6 +43,12 @@ SpAgent 是从 MotionCare 演进的个人跑步训练管理系统。阶段 1 增
 
 已有阶段 0 开发库时，运行 `npm --prefix backend run db:migrate` 即可增量升级。要演示统计数据，先在本地注册专用于演示的账号，再运行 `npm --prefix backend run seed:training-demo -- demo@example.test`，把邮箱换成该账号。页面会标识合成数据，演示记录只归属所选账号。
 
+## 使用教练计划助手
+
+在「教练 → 计划助手」输入「我每周二、四、日有空，未来四周想为首次 5 公里做准备」。对话里会显示近 7/28 天的训练数据、缺失项和四周草案。确认后可跳转到已保存的计划。已有执行中计划时，新计划会另存为草稿。未确认的草案会在 30 分钟后失效。
+
+默认使用本地规则，演示无需 API 密钥。若要启用在线意图识别，可在本机 `backend/.env` 设置 `AGENT_USE_DEEPSEEK=true`，并填写 `AI_DEEPSEEK_BASE_URL`、`AI_DEEPSEEK_MODEL` 和 `DEEPSEEK_API_KEY`。配置的服务需支持 Chat Completions 的 JSON 输出。启用后，计划助手会把当前输入的文本发送给配置的服务来识别目标，训练数据查询和课表生成仍在本地完成。[DeepSeek JSON 输出文档](https://api-docs.deepseek.com/guides/json_mode/)
+
 ## 验证
 
 ```powershell
@@ -53,7 +59,7 @@ npm --prefix frontend run check:course
 
 新库从空数据开始。在「记录」手动添加一条名为「合成测试跑」的活动，例如 5000 米、1800 秒，然后在运动记录、详情和趋势页核对。无 DeepSeek 密钥时，现有教练使用规则建议。单次跑步预测需要单独训练本地模型，相关脚本见 [后端 API 文档](backend/docs/api.md#ml-models)。
 
-原有前端静态检查和浏览器巡检存在上游遗留失败项，实际验收范围见 [架构与验证](docs/architecture.md)。计划和训练上下文契约见 [阶段 1 API](docs/api.md)。
+原有前端静态检查和浏览器巡检存在上游遗留失败项，实际验收范围见 [架构与验证](docs/architecture.md)。计划、训练上下文和教练接口见 [API 文档](docs/api.md)。
 
 ## Garmin、FIT 与本地文件
 

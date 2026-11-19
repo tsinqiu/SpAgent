@@ -44,6 +44,21 @@ const REQUIRED_SCHEMA = Object.freeze({
     indexes: ['UQ_TrainingSessions_plan_date'],
     foreignKeys: ['FK_TrainingSessions_plan']
   },
+  AgentConversations: {
+    columns: ['id', 'user_id', 'title'],
+    indexes: ['UQ_AgentConversations_owner'],
+    foreignKeys: ['FK_AgentConversations_user']
+  },
+  AgentMessages: {
+    columns: ['id', 'conversation_id', 'client_message_id', 'role', 'cards_json'],
+    indexes: ['UQ_AgentMessages_turn_role'],
+    foreignKeys: ['FK_AgentMessages_conversation']
+  },
+  AgentActions: {
+    columns: ['id', 'user_id', 'status', 'expires_at', 'result_plan_id', 'payload_json'],
+    indexes: ['UQ_AgentActions_message'],
+    foreignKeys: ['FK_AgentActions_conversation_owner', 'FK_AgentActions_message']
+  },
   LoginAttempts: {
     columns: ['id', 'email', 'user_id', 'ip_address', 'user_agent', 'success', 'failure_reason', 'created_at'],
     indexes: ['IX_LoginAttempts_email_ip_time', 'IX_LoginAttempts_ip_time'],
@@ -131,7 +146,7 @@ async function verifyDatabase({ query = db.query, databaseName = config.db.datab
       throw new DatabaseVerificationError(
         `Database schema is incomplete: ${missingItems.join(', ')}. `
           + 'For a new empty database, run npm run db:init. '
-          + 'Apply npm run db:migrate to install the training plan tables. '
+          + 'Apply npm run db:migrate to install the training plan and agent tables. '
           + 'For an existing database, consult database/README.md before applying migrations.',
         'DATABASE_SCHEMA_INCOMPLETE',
         missing
