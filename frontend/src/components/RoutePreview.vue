@@ -227,15 +227,15 @@ async function loadAmap() {
   configureAmapSecurity(amapConfig.securityCode)
   if (window.AMap?.Map) return window.AMap
 
-  if (!window.__motioncareAmapLoadPromise) {
-    window.__motioncareAmapLoadPromise = AMapLoader.load({
+  if (!window.__spagentAmapLoadPromise) {
+    window.__spagentAmapLoadPromise = AMapLoader.load({
       key,
       version: '2.0',
       plugins: ['AMap.Scale', 'AMap.ToolBar'],
     })
   }
 
-  return window.__motioncareAmapLoadPromise
+  return window.__spagentAmapLoadPromise
 }
 
 const validPoints = computed(() =>

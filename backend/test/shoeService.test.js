@@ -16,7 +16,7 @@ test('shoeService.create reads insertId from db.query insert results', async () 
   try {
     const result = await shoeService.create(7, {
       name: '  Race Day  ',
-      brand: 'MotionCare',
+      brand: 'SpAgent',
       model: 'Smoke',
       purchaseDate: '2026-07-02',
       targetDistanceKm: 800,
@@ -30,7 +30,7 @@ test('shoeService.create reads insertId from db.query insert results', async () 
     assert.deepEqual(calls[0].params, [
       7,
       'Race Day',
-      'MotionCare',
+      'SpAgent',
       'Smoke',
       '2026-07-02',
       null,

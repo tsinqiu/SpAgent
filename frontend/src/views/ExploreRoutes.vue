@@ -110,8 +110,9 @@ import { showToast } from 'vant'
 import RoutePreview from '@/components/RoutePreview.vue'
 import StateBlock from '@/components/StateBlock.vue'
 import { getActivityPage, getTrackPoints } from '@/services/activities'
+import { readSavedValue } from '@/services/browserStorage'
 
-const STORAGE_KEY = 'motioncare-my-routes'
+const STORAGE_KEY = 'spagent-my-routes'
 
 const tabs = [
   { key: 'history', label: '历史路线' },
@@ -150,7 +151,7 @@ const historyRoutes = computed(() => activities.value
 
 function loadItems() {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY)
+    const raw = readSavedValue(window.localStorage, STORAGE_KEY)
     return raw ? JSON.parse(raw) : []
   } catch {
     window.localStorage.removeItem(STORAGE_KEY)

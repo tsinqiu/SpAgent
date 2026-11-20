@@ -44,6 +44,6 @@ h3 { font-size: 16px; }
 p { font-size: 13px; }
 .revision-draft__actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 button, a { display: grid; place-items: center; min-height: 44px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); color: var(--text); font: inherit; font-size: 13px; }
-button:last-child, a { background: var(--app-green); color: white; }
+button:last-child, a { background: #078452; color: white; border-color: #078452; }
 button:disabled { opacity: .55; }
 </style>

@@ -39,11 +39,11 @@ function createQuery(rows = completeRows()) {
 test('database verification accepts the required application schema', async () => {
   const result = await verifyDatabase({
     query: createQuery(),
-    databaseName: 'MotionAnalysis'
+    databaseName: 'SpAgent'
   });
 
   assert.equal(result.status, 'ready');
-  assert.equal(result.database, 'MotionAnalysis');
+  assert.equal(result.database, 'SpAgent');
   assert.ok(result.checkedTables >= 8);
 });
 
@@ -87,7 +87,7 @@ test('database verification accepts lowercase table metadata from Windows MySQL'
 
   const result = await verifyDatabase({
     query: createQuery(rows),
-    databaseName: 'MotionAnalysis'
+    databaseName: 'SpAgent'
   });
 
   assert.equal(result.status, 'ready');
@@ -101,7 +101,7 @@ test('database verification reports missing security schema with migration guida
   rows.indexes = rows.indexes.filter((row) => row.indexName !== 'IX_SecurityEvents_type_time');
 
   await assert.rejects(
-    verifyDatabase({ query: createQuery(rows), databaseName: 'MotionAnalysis' }),
+    verifyDatabase({ query: createQuery(rows), databaseName: 'SpAgent' }),
     (error) => {
       assert.equal(error.code, 'DATABASE_SCHEMA_INCOMPLETE');
       assert.match(error.message, /LoginAttempts\.ip_address/);
@@ -119,11 +119,11 @@ test('database verification converts connection failures into actionable startup
       query: async () => {
         throw new Error('connect ECONNREFUSED 127.0.0.1:3306');
       },
-      databaseName: 'MotionAnalysis'
+      databaseName: 'SpAgent'
     }),
     (error) => {
       assert.equal(error.code, 'DATABASE_UNAVAILABLE');
-      assert.match(error.message, /MotionAnalysis/);
+      assert.match(error.message, /SpAgent/);
       assert.doesNotMatch(error.message, /password/i);
       return true;
     }

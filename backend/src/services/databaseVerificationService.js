@@ -4,8 +4,8 @@ const config = require('../config');
 const REQUIRED_SCHEMA = Object.freeze({
   Users: { columns: ['id', 'role', 'status'] },
   Activities: {
-    columns: ['id', 'owner_user_id', 'data_source', 'is_manual'],
-    indexes: ['UQ_Activities_owner_garmin']
+    columns: ['id', 'owner_user_id', 'data_source', 'is_manual', 'training_timestamp'],
+    indexes: ['UQ_Activities_owner_garmin', 'IX_Activities_owner_training_timestamp']
   },
   ActivitySummaries: { columns: ['activity_id', 'activity_training_load'] },
   TrackPoints: {
@@ -46,6 +46,26 @@ const REQUIRED_SCHEMA = Object.freeze({
     columns: ['id', 'plan_id', 'scheduled_date', 'status'],
     indexes: ['UQ_TrainingSessions_plan_date'],
     foreignKeys: ['FK_TrainingSessions_plan']
+  },
+  TrainingPreferences: {
+    columns: ['user_id', 'goal_type', 'weekdays'],
+    indexes: ['PRIMARY'],
+    foreignKeys: ['FK_TrainingPreferences_user']
+  },
+  TrainingReminderPreferences: {
+    columns: ['user_id', 'daily_training', 'weekly_report'],
+    indexes: ['PRIMARY'],
+    foreignKeys: ['FK_TrainingReminderPreferences_user']
+  },
+  TrainingReminders: {
+    columns: ['id', 'user_id', 'kind', 'period_start', 'created_at', 'dismissed_at'],
+    indexes: ['UQ_TrainingReminders_period'],
+    foreignKeys: ['FK_TrainingReminders_user']
+  },
+  SyncJobs: {
+    columns: ['id', 'status', 'active_provider', 'lease_token', 'lease_until', 'attempt_count'],
+    indexes: ['UQ_SyncJobs_active_provider', 'IX_SyncJobs_worker_queue'],
+    foreignKeys: ['FK_SyncJobs_user']
   },
   AgentConversations: {
     columns: ['id', 'user_id', 'title'],

@@ -6,6 +6,15 @@ const root = '/training-plans'
 export const listTrainingPlans = async () => (await getEnvelope(root)).data
 export const getTrainingPlan = async (id) => (await getEnvelope(`${root}/${id}`)).data
 export const getTrainingContext = async () => (await getEnvelope('/training/context')).data
+export const getTodayTraining = async () => (await getEnvelope('/training/today')).data
+export const getWeeklyReport = async (weekStart) => (
+  await getEnvelope('/training/weekly-report', { params: { week_start: weekStart } })
+).data
+export const getWeeklyGuidance = async () => (await getEnvelope('/training/weekly-guidance')).data
+const preferencesPath = '/training/preferences'
+export const getTrainingPreferences = async () => (await getEnvelope(preferencesPath)).data
+export const saveTrainingPreferences = async (body) => (await mutateEnvelope('put', preferencesPath, body)).data
+export const clearTrainingPreferences = async () => unwrapApiResponse((await apiClient.delete(preferencesPath)).data).data
 export const saveTrainingPlan = async (id, body) => (
   await mutateEnvelope(id ? 'put' : 'post', id ? `${root}/${id}` : root, body)
 ).data

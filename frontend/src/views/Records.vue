@@ -32,7 +32,7 @@
     <StateBlock
       v-else-if="!hasRecords"
       title="还没有个人纪录"
-      message="完成并同步运动后，MotionCare 会根据已有活动生成个人最佳。"
+      message="完成并同步运动后，SpAgent 会根据已有活动生成个人最佳。"
     />
 
     <div v-else class="records-grid">

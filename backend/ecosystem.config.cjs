@@ -1,7 +1,7 @@
 module.exports = {
   apps: [
     {
-      name: 'motion-analysis-api',
+      name: 'spagent-api',
       script: 'src/server.js',
       cwd: __dirname,
       instances: 1,

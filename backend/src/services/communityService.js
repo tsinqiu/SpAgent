@@ -53,7 +53,7 @@ function postSelect(user) {
       u.username,
       u.bio AS userBio,
       p.content,
-      p.activity_id AS activityId,
+      a.id AS activityId,
       a.activity_name AS activityName,
       a.activity_type AS activityType,
       a.local_start_time AS activityLocalStartTime,
@@ -86,7 +86,7 @@ function postSelect(user) {
       }
     FROM CommunityPosts p
     JOIN Users u ON u.id = p.user_id
-    LEFT JOIN Activities a ON a.id = p.activity_id
+    LEFT JOIN Activities a ON a.id = p.activity_id AND a.owner_user_id = p.user_id
     LEFT JOIN ActivitySummaries js ON js.activity_id = a.id
   `;
 }
@@ -126,7 +126,7 @@ async function ensureActivityUsable(activityId, user) {
 
   const rows = await db.query('SELECT id, owner_user_id AS ownerUserId FROM Activities WHERE id = ? LIMIT 1', [activityId]);
   const activity = rows[0];
-  if (!activity) {
+  if (!activity || Number(activity.ownerUserId) !== Number(user.id)) {
     throw new ApiError(404, 'activity not found', 'NOT_FOUND');
   }
 }
@@ -146,6 +146,19 @@ async function getPostById(postId, user) {
     throw new ApiError(404, 'post not found', 'NOT_FOUND');
   }
   return toPost(post);
+}
+
+async function getPostImagePath(postId, user) {
+  const visibility = visibilityWhere(user);
+  const rows = await db.query(`SELECT p.image_path AS imagePath FROM CommunityPosts p
+    WHERE p.id = ? AND ${visibility.sql} LIMIT 1`, [postId, ...visibility.params]);
+  return rows[0]?.imagePath;
+}
+
+async function getPublicImagePath(imagePath) {
+  const rows = await db.query(`SELECT image_path AS imagePath FROM CommunityPosts
+    WHERE image_path = ? AND visibility = 'public' LIMIT 1`, [imagePath]);
+  return rows[0]?.imagePath;
 }
 
 async function listPosts(filters, user) {
@@ -332,6 +345,8 @@ async function unfollowUser(targetUserId, user) {
 module.exports = {
   listPosts,
   createPost,
+  getPostImagePath,
+  getPublicImagePath,
   listComments,
   createComment,
   likePost,

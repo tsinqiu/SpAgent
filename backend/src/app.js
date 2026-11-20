@@ -43,6 +43,7 @@ function createApp({
   planService,
   contextService,
   executionService,
+  weeklyReportService,
   securityService,
   securityConfig = config.security
 } = {}) {
@@ -71,7 +72,7 @@ function createApp({
       }
     })
   );
-  app.use('/api', rateLimit({
+  app.use(['/api', '/uploads/community-images'], rateLimit({
     windowMs: securityConfig.globalRateLimitWindowMs,
     limit: securityConfig.globalRateLimitMax,
     standardHeaders: 'draft-8',
@@ -95,7 +96,10 @@ function createApp({
     }
   }));
   app.use(express.json({ limit: config.security.jsonLimit }));
-  app.use('/uploads', express.static(config.uploads.root));
+  app.use('/uploads/explore-videos', express.static(config.uploads.exploreVideosDir, { index: false, redirect: false }));
+  app.use('/uploads/explore-images', express.static(config.uploads.exploreImagesDir, { index: false, redirect: false }));
+  app.use('/uploads/community-images', createCommunityRouter.createPublicImageRouter(communityService));
+  app.use('/uploads', (req, res) => res.sendStatus(404));
 
   app.use('/api', createAuthRouter(authService, securityService));
   app.use('/api', createSystemRouter());
@@ -104,7 +108,9 @@ function createApp({
   app.use('/api', createActivityRouter(activityService, authService));
   app.use('/api', createStatsRouter(activityService, authService));
   app.use('/api', createTrainingRouter(activityService, authService));
-  app.use('/api', createTrainingPlanRouter({ authService, planService, contextService, executionService }));
+  app.use('/api', createTrainingPlanRouter({
+    authService, planService, contextService, executionService, weeklyReportService
+  }));
   app.use('/api', createDashboardRouter(activityService, authService));
   app.use('/api', createManualActivityRouter({ manualActivityService, authService }));
   app.use('/api', createWorkoutRouter({ workoutService, authService }));

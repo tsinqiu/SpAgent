@@ -8,6 +8,16 @@ const weekdaysByText = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 日: 7,
 const weekdayToken = '[一二三四五六日天1-7]';
 const preference = [2, 6, 4, 7, 3, 5, 1];
 const frequencyByText = { 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
+const namedStartOffsets = { 今天: 0, 明天: 1, 后天: 2 };
+const sessionCapPrefix = '(?:每次|单次)\\s*(?:跑步|训练)?\\s*(?:时长|时间)?\\s*';
+const sessionCapQualifier = '(?:最多|最长|上限(?:是|为)?|至多|不超过|不能超过|只能|只有)';
+const sessionDuration = '(\\d+(?:\\.\\d+)?\\s*(?:小时|分钟|分)|半小时|[一二两三四五六七八九十]{1,3}分钟)';
+const sessionCapPattern = new RegExp(`${sessionCapPrefix}${sessionCapQualifier}?\\s*${sessionDuration}`);
+const durationOnlyPattern = new RegExp(`^${sessionDuration}[。！!]?$`);
+const explicitCapPattern = new RegExp(`${sessionCapPrefix}${sessionCapQualifier}`);
+const looseSessionCapPattern = new RegExp(`(?:只有|只能|(?:总时长|总时间)[：:]?\\s*${sessionCapQualifier})(?:训练|跑步)?\\s*${sessionDuration}`);
+const defaultScheduleChoice = { label: '按默认安排', message: '按默认安排' };
+const cancelScheduleChoice = { label: '取消', message: '取消本次计划' };
 
 function parseWeekdays(text) {
   const groups = text.matchAll(new RegExp(
@@ -19,6 +29,19 @@ function parseWeekdays(text) {
   ));
   if (/周末/.test(text)) values.push(6, 7);
   return [...new Set(values)].sort();
+}
+
+function parseSessionMinutes(value) {
+  if (value === '半小时') return 30;
+  if (/^\d/.test(value)) return Number.parseFloat(value) * (value.endsWith('小时') ? 60 : 1);
+  const parts = value.match(/^([一二两三四五六七八九]?)(十)([一二三四五六七八九]?)分钟$/);
+  if (parts) return (frequencyByText[parts[1]] ?? 1) * 10 + (frequencyByText[parts[3]] ?? 0);
+  return frequencyByText[value.slice(0, -2)];
+}
+
+function hasSessionTimeConstraint(question) {
+  const text = question.normalize('NFKC');
+  return sessionCapPattern.test(text) || explicitCapPattern.test(text) || looseSessionCapPattern.test(text);
 }
 
 function interpretWithRules(message) {
@@ -41,22 +64,47 @@ function interpretWithRules(message) {
   if (/(?:周|星期)[^！。；;，,]{0,18}(?:没空|没时间|不能(?:跑|练|训练)|不方便|不行)|(?:排除|避开|除(?:了)?)[^！。；;，,]{0,8}(?:周|星期)/.test(text)) {
     return { intent: 'blocked', reply: '请直接告诉我哪几天可以训练。我会按你选的 2–4 天安排。' };
   }
-  const goalType = /(?:(?<!\d)5\s*(?:公里|千米|k(?:m)?\b)|五公里|首次.{0,8}五千米)/i.test(text)
+  const explicitGoal = /(?:(?<!\d)5\s*(?:公里|千米|k(?:m)?\b)|五公里|首次.{0,8}五千米)/i.test(text)
     ? 'first_5k'
-    : /规律.{0,5}跑|跑步.{0,4}习惯|(?:四|4)\s*周.{0,12}跑|跑.{0,8}(?:训练计划|课表|计划)/.test(text)
+    : /规律.{0,5}跑|跑步.{0,4}习惯/.test(text)
       ? 'regular_running' : null;
-  const rawFrequency = text.match(/每(?:周|星期)\s*(?:跑步|训练|跑)?\s*(\d{1,2}|[一二两三四五六七八九十])\s*(?:次|天)/)?.[1];
+  const runningPlan = /(?:四|4)\s*周.{0,12}跑|跑.{0,8}(?:训练计划|课表|计划)/.test(text) ||
+    /(?:按|沿用)(?:我的|已保存的)?(?:训练)?偏好.{0,6}(?:生成|制定|安排).{0,6}(?:计划|课表)/.test(text);
+  const goalType = explicitGoal ?? (runningPlan ? 'regular_running' : null);
+  const rawFrequency = (text.match(/每(?:周|星期)\s*(?:跑步|训练|跑)?\s*(\d{1,2}|[一二两三四五六七八九十])\s*(?:次|天)/) ||
+    text.match(/^(\d{1,2}|[一二两三四五六七八九十])\s*次[。！!]?$/))?.[1];
   const frequency = rawFrequency == null ? null : (frequencyByText[rawFrequency] ?? Number(rawFrequency));
-  const relative = text.match(/(本周|这周|下周|下星期)\s*([一二三四五六日天1-7])\s*(?:开始|起步|起跑)/);
-  const relativeStart = relative && {
+  const relative = text.match(/(本周|这周|下周|下星期|周|星期)\s*([一二三四五六日天1-7])\s*(?:开始|起步|起跑)/);
+  const named = text.match(/(?:(今天|明天|后天)\s*(?:开始|起步|起跑)|^(今天|明天|后天)[。！!]?$)/);
+  const relativeStart = relative ? {
     nextWeek: relative[1].startsWith('下'),
     weekday: weekdaysByText[relative[2]] ?? Number(relative[2])
-  };
+  } : named ? { offset: namedStartOffsets[named[1] ?? named[2]] } : null;
   const weekdays = parseWeekdays(relative ? text.replace(relative[0], '') : text);
   const startDate = text.match(/\b\d{4}-\d{2}-\d{2}\b/)?.[0];
+  const limit = (text.match(sessionCapPattern) || text.match(durationOnlyPattern) || text.match(looseSessionCapPattern))?.[1]?.replace(/\s/g, '');
+  const maxSessionMinutes = limit ? parseSessionMinutes(limit) : null;
+  if ((limit || explicitCapPattern.test(text)) && (!Number.isSafeInteger(maxSessionMinutes) || maxSessionMinutes <= 0)) {
+    return { intent: 'blocked', reply: '请用分钟注明单次训练时长上限，例如「每次最多 10 分钟」。' };
+  }
   return goalType
-    ? { intent: 'plan', goalType, weekdays, frequency, startDate, relativeStart, tools: trainingTools }
-    : { intent: 'clarify', reply: '你想在四周内准备首次 5 公里，还是建立规律跑步习惯？也可以一起告诉我每周哪几天有空。' };
+    ? { intent: 'plan', goalType, explicitGoal, weekdays, frequency, startDate, relativeStart, maxSessionMinutes, tools: trainingTools }
+    : { intent: 'clarify', weekdays, frequency, startDate, relativeStart, maxSessionMinutes };
+}
+
+function withTrainingPreferences(intent, preferences) {
+  const savedGoal = intent.explicitGoal ? null : preferences.goalType;
+  const savedWeekdays = intent.weekdays.length ? [] : preferences.weekdays;
+  const preferenceNotes = [];
+  if (savedGoal) preferenceNotes.push(`沿用已保存的跑步目标「${goalNames[savedGoal]}」。`);
+  if (savedWeekdays.length) preferenceNotes.push('沿用已保存的常用训练日。');
+  return {
+    ...intent,
+    goalType: savedGoal ?? intent.goalType,
+    explicitGoal: savedGoal ?? intent.explicitGoal,
+    weekdays: savedWeekdays.length ? savedWeekdays : intent.weekdays,
+    preferenceNotes
+  };
 }
 
 function validateModelIntent(data, local) {
@@ -73,11 +121,13 @@ function validateModelIntent(data, local) {
       new Set(data.tools).size !== 2 || data.tools.some(tool => !trainingTools.includes(tool))) return null;
   return {
     intent: 'plan',
-    goalType: local.goalType ?? data.goalType,
-    weekdays: local.weekdays?.length ? local.weekdays : [...new Set(data.weekdays)].sort(),
+    explicitGoal: local.explicitGoal ?? (local.intent === 'clarify' ? data.goalType : null),
+    goalType: local.explicitGoal ?? data.goalType,
+    weekdays: local.weekdays,
     frequency: local.frequency ?? data.frequency,
     startDate: local.startDate,
     relativeStart: local.relativeStart,
+    maxSessionMinutes: local.maxSessionMinutes,
     tools: data.tools
   };
 }
@@ -86,10 +136,72 @@ function weekday(date) {
   return new Date(`${date}T00:00:00Z`).getUTCDay() || 7;
 }
 
+function relativeStartDate(relative, today) {
+  const offset = relative.offset ?? ((relative.nextWeek ? 7 : 0) + relative.weekday - weekday(today));
+  return addDays(today, offset);
+}
+
+function planInputs(intent, today) {
+  const { goalType = null, weekdays = [], frequency = null, maxSessionMinutes = null, startDate, relativeStart } = intent;
+  return { goalType, weekdays, frequency, maxSessionMinutes, startDate: startDate || (relativeStart ? relativeStartDate(relativeStart, today) : null) };
+}
+
+function resumePlanIntent(current, previous, today) {
+  const { weekdays, frequency, maxSessionMinutes, startDate } = planInputs(current, today);
+  const goal = current.explicitGoal ?? previous.goalType;
+  return {
+    intent: goal ? 'plan' : 'clarify',
+    goalType: goal,
+    explicitGoal: goal,
+    weekdays: weekdays.length ? weekdays : previous.weekdays,
+    frequency: frequency ?? previous.frequency,
+    maxSessionMinutes: maxSessionMinutes ?? previous.maxSessionMinutes,
+    startDate: startDate ?? previous.startDate,
+    tools: trainingTools
+  };
+}
+
+function createClarification(intent, previous, today, now, constraints) {
+  const attempt = (previous?.attempt ?? 0) + 1;
+  if (attempt > 2) {
+    return { content: '这次先暂停。准备好后，可以用一条消息告诉我跑步目标和每周可训练的 2–4 天。', cards: [] };
+  }
+  const inputs = planInputs(intent, today);
+  inputs.goalType = intent.explicitGoal ?? null;
+  const fields = [
+    ...(!intent.explicitGoal ? ['goalType'] : []),
+    ...(!inputs.weekdays.length ? ['weekdays'] : []),
+    ...(constraints?.field === 'startDate' ? ['startDate'] : []),
+    ...(constraints?.field === 'weekdays' && inputs.weekdays.length ? ['weekdays'] : [])
+  ];
+  const content = [
+    constraints?.reply,
+    fields.includes('goalType') && '你的目标是首次完成 5 公里，还是建立规律跑步习惯？',
+    fields.includes('weekdays') && !constraints?.reply && '每周哪 2–4 天方便训练？',
+    '也可以回复「按默认安排」或「取消本次计划」。'
+  ].filter(Boolean).join('');
+  const choices = [
+    ...(fields.includes('goalType') ? Object.values(goalNames).map(name => ({ label: name, message: name })) : []),
+    defaultScheduleChoice, cancelScheduleChoice
+  ];
+  const expiresAt = new Date(now + 30 * 60 * 1000).toISOString();
+  return { content, cards: [{ type: 'clarification', fields, choices, expiresAt }], clarification: { inputs, attempt, expiresAt, field: constraints?.field } };
+}
+
+function planWithDefaults(pending) {
+  const defaults = { ...pending.inputs };
+  if (pending.field === 'weekdays') {
+    defaults.frequency = null;
+    defaults.weekdays = [];
+  }
+  if (pending.field === 'startDate') defaults.startDate = null;
+  return { ...defaults, intent: 'plan', goalType: defaults.goalType ?? 'regular_running', tools: trainingTools };
+}
+
 function checkConstraints(intent, today) {
   const frequency = intent.frequency ?? (intent.weekdays.length || 2);
   if (frequency < 2 || frequency > 4 || (intent.weekdays.length && intent.weekdays.length < frequency)) {
-    return { reply: '请选择每周 2–4 个训练日，并让训练次数不超过可用天数。比如每周二、四、日练三次。' };
+    return { field: 'weekdays', reply: '请选择每周 2–4 个训练日，并让训练次数不超过可用天数。比如每周二、四、日练三次。' };
   }
   const nextMonday = addDays(today, (8 - weekday(today)) % 7);
   let startDate = nextMonday;
@@ -98,19 +210,20 @@ function checkConstraints(intent, today) {
       startDate = parseDate(intent.startDate, 'startDate');
       if (startDate < today || startDate > '9999-01-01') throw new Error('out of range');
     } catch {
-      return { reply: '请提供从今天起的有效开始日期，格式为 YYYY-MM-DD。' };
+      return { field: 'startDate', reply: '请提供从今天起的有效开始日期，格式为 YYYY-MM-DD。' };
     }
   } else if (intent.relativeStart) {
-    const { nextWeek, weekday: startWeekday } = intent.relativeStart;
-    startDate = addDays(today, (nextWeek ? 7 : 0) + startWeekday - weekday(today));
-    if (startDate < today) return { reply: '这个开始日已经过去，请选今天或之后的日期。' };
+    startDate = relativeStartDate(intent.relativeStart, today);
+    if (startDate < today) return { field: 'startDate', reply: '这个开始日已经过去，请选今天或之后的日期。' };
   }
   const days = preference.filter(day => !intent.weekdays.length || intent.weekdays.includes(day)).slice(0, frequency).sort();
   const assumptions = [
+    ...(intent.preferenceNotes ?? []),
     ...(!intent.weekdays.length ? ['未指定可训练日，已选间隔较均衡的日期。'] : []),
     ...(!intent.startDate && !intent.relativeStart ? ['未指定开始日，按最近一个不早于今天的周一开始。'] : [])
   ];
-  return { frequency, days, startDate, assumptions };
+  if (intent.maxSessionMinutes) assumptions.push(`按本轮要求，每次训练不超过 ${intent.maxSessionMinutes} 分钟。`);
+  return { frequency, days, startDate, assumptions, maxSessionMinutes: intent.maxSessionMinutes };
 }
 
 function buildPlan(intent, constraints, context) {
@@ -119,8 +232,7 @@ function buildPlan(intent, constraints, context) {
   const hasHistory = month.running.activityCount > 0 && historyMins > 0;
   const hasRecovery = recent.recovery.sleepScore.samples > 0 || recent.recovery.hrv.samples > 0;
   const startingMinutes = hasHistory ? Math.min(20, Math.floor(historyMins / constraints.frequency)) : 15;
-  const base = Math.max(1, startingMinutes);
-  const step = hasHistory && hasRecovery ? Math.floor(base / 10) : 0;
+  const minutes = Math.max(1, Math.min(startingMinutes, constraints.maxSessionMinutes ?? Infinity));
   const weeks = ['适应', '保持', '建立', '巩固'].map((phase, weekIndex) => ({
     phase,
     days: Array.from({ length: 7 }, (_, index) => {
@@ -128,7 +240,6 @@ function buildPlan(intent, constraints, context) {
       const day = weekday(date);
       if (!constraints.days.includes(day)) return { date };
       const followsTraining = constraints.days.includes(day === 1 ? 7 : day - 1);
-      const minutes = base + (weekIndex >= 2 ? step : 0);
       if (followsTraining) {
         return {
           date, type: 'recovery', title: '走跑恢复',
@@ -178,4 +289,7 @@ function evidence(context, { hasHistory, hasRecovery }, assumptions) {
   };
 }
 
-module.exports = { interpretWithRules, validateModelIntent, checkConstraints, buildPlan, evidence, localToday };
+module.exports = {
+  interpretWithRules, withTrainingPreferences, validateModelIntent, checkConstraints, buildPlan, evidence, localToday,
+  resumePlanIntent, createClarification, planWithDefaults, hasSessionTimeConstraint
+};

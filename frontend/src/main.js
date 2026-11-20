@@ -1,6 +1,6 @@
 import { createApp } from 'vue'
 
-// Vant base styles first so MotionCare tokens win the cascade below.
+// Vant base styles first so SpAgent tokens win the cascade below.
 import 'vant/lib/index.css'
 import {
   Button,

@@ -78,6 +78,7 @@ function resolveProjectPath(value, fallback) {
 
 const serverPort = parseInteger(process.env.PORT, 8080);
 const rateLimitDefaults = getRateLimitDefaults(process.env.NODE_ENV);
+const uploadRoot = resolveBackendPath(process.env.UPLOAD_ROOT, 'uploads');
 
 const config = {
   server: {
@@ -129,12 +130,11 @@ const config = {
     }
   },
   uploads: {
-    root: resolveBackendPath(process.env.UPLOAD_ROOT, 'uploads'),
-    exploreVideosDir: resolveBackendPath(process.env.EXPLORE_VIDEO_UPLOAD_DIR, 'uploads/explore-videos'),
-    exploreImagesDir: resolveBackendPath(process.env.EXPLORE_IMAGE_UPLOAD_DIR, 'uploads/explore-images'),
-    communityImagesDir: resolveBackendPath(process.env.COMMUNITY_IMAGE_UPLOAD_DIR, 'uploads/community-images'),
-    activityImagesDir: resolveBackendPath(process.env.ACTIVITY_IMAGE_UPLOAD_DIR, 'uploads/activity-images'),
-    shoeImagesDir: resolveBackendPath(process.env.SHOE_IMAGE_UPLOAD_DIR, 'uploads/shoe-images'),
+    exploreVideosDir: resolveBackendPath(process.env.EXPLORE_VIDEO_UPLOAD_DIR, path.join(uploadRoot, 'explore-videos')),
+    exploreImagesDir: resolveBackendPath(process.env.EXPLORE_IMAGE_UPLOAD_DIR, path.join(uploadRoot, 'explore-images')),
+    communityImagesDir: resolveBackendPath(process.env.COMMUNITY_IMAGE_UPLOAD_DIR, path.join(uploadRoot, 'community-images')),
+    activityImagesDir: resolveBackendPath(process.env.ACTIVITY_IMAGE_UPLOAD_DIR, path.join(uploadRoot, 'activity-images')),
+    shoeImagesDir: resolveBackendPath(process.env.SHOE_IMAGE_UPLOAD_DIR, path.join(uploadRoot, 'shoe-images')),
     maxVideoBytes: parseInteger(process.env.EXPLORE_VIDEO_MAX_BYTES, 200 * 1024 * 1024),
     maxImageBytes: parseInteger(process.env.IMAGE_UPLOAD_MAX_BYTES, 10 * 1024 * 1024)
   },

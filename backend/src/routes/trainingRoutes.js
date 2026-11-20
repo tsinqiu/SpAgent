@@ -10,7 +10,7 @@ function createTrainingRouter(activityService = defaultActivityService, authServ
   const requireAuth = authenticate(authService);
 
   router.get('/training/load-balance', requireAuth, asyncHandler((req, res) =>
-    sendCachedStats(req, res, () => activityService.getLoadBalance(parseTrainingFilters(req.query, req.user)))
+    sendCachedStats(req, res, parseTrainingFilters(req.query, req.user), filters => activityService.getLoadBalance(filters))
   ));
 
   return router;

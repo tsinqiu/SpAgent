@@ -50,9 +50,9 @@ test('frontend declares Capacitor dependencies and native app scripts', () => {
   assert.match(packageJson.scripts['android:sync'] || '', /sync-android-server\.ps1/)
 })
 
-test('Capacitor config targets a MotionCare Android app from Vite dist', () => {
-  assert.match(capacitorConfig, /appId:\s*['"]com\.motioncare\.app['"]/)
-  assert.match(capacitorConfig, /appName:\s*['"]MotionCare['"]/)
+test('Capacitor config targets a SpAgent Android app from Vite dist', () => {
+  assert.match(capacitorConfig, /appId:\s*['"]com\.spagent\.app['"]/)
+  assert.match(capacitorConfig, /appName:\s*['"]SpAgent['"]/)
   assert.match(capacitorConfig, /webDir:\s*['"]dist['"]/)
   assert.match(capacitorConfig, /backgroundColor:\s*['"]#eef8f2['"]/)
   assert.match(capacitorConfig, /androidScheme:\s*['"]https['"]/)
@@ -68,12 +68,12 @@ test('Android WebView allows the packaged HTTPS app shell to call the HTTP serve
   assert.match(androidNetworkSecurity, /<domain[^>]*>47\.112\.190\.14<\/domain>/)
 })
 
-test('Android platform is generated with MotionCare identity', () => {
+test('Android platform is generated with SpAgent identity', () => {
   assert.match(androidManifest, /android:theme="@style\/AppTheme/)
-  assert.match(androidStrings, /<string name="app_name">MotionCare<\/string>/)
-  assert.match(androidStrings, /<string name="package_name">com\.motioncare\.app<\/string>/)
-  assert.match(androidGradle, /namespace\s*=\s*["']com\.motioncare\.app["']/)
-  assert.match(androidGradle, /applicationId\s+["']com\.motioncare\.app["']/)
+  assert.match(androidStrings, /<string name="app_name">SpAgent<\/string>/)
+  assert.match(androidStrings, /<string name="package_name">com\.spagent\.app<\/string>/)
+  assert.match(androidGradle, /namespace\s*=\s*["']com\.spagent\.app["']/)
+  assert.match(androidGradle, /applicationId\s+["']com\.spagent\.app["']/)
 })
 
 test('Android app can request location for live workout recording', () => {
@@ -84,10 +84,10 @@ test('Android app can request location for live workout recording', () => {
 test('Android release signing is configured from environment variables only', () => {
   assert.match(androidGradle, /signingConfigs\s*\{/)
   assert.match(androidGradle, /release\s*\{/)
-  assert.match(androidGradle, /MOTIONCARE_RELEASE_STORE_FILE/)
-  assert.match(androidGradle, /MOTIONCARE_RELEASE_STORE_PASSWORD/)
-  assert.match(androidGradle, /MOTIONCARE_RELEASE_KEY_ALIAS/)
-  assert.match(androidGradle, /MOTIONCARE_RELEASE_KEY_PASSWORD/)
+  assert.match(androidGradle, /SPAGENT_RELEASE_STORE_FILE/)
+  assert.match(androidGradle, /SPAGENT_RELEASE_STORE_PASSWORD/)
+  assert.match(androidGradle, /SPAGENT_RELEASE_KEY_ALIAS/)
+  assert.match(androidGradle, /SPAGENT_RELEASE_KEY_PASSWORD/)
   assert.doesNotMatch(androidGradle, /storePassword\s+["'][^"']+["']/)
   assert.doesNotMatch(androidGradle, /keyPassword\s+["'][^"']+["']/)
 })
@@ -122,7 +122,7 @@ test('Windows debug APK build script uses the configured Gradle and Android SDK'
 test('Windows release APK build script requires explicitly configured signing credentials', () => {
   assert.match(packageJson.scripts['android:release'] || '', /build-android-release\.ps1/)
   assert.doesNotMatch(androidReleaseScript, /\$env:(GRADLE_USER_HOME|ANDROID_USER_HOME|ANDROID_HOME)\s*=|Get-Content|keytool/)
-  assert.match(androidReleaseScript, /MOTIONCARE_RELEASE_STORE_FILE[\s\S]*MOTIONCARE_RELEASE_STORE_PASSWORD[\s\S]*MOTIONCARE_RELEASE_KEY_ALIAS[\s\S]*MOTIONCARE_RELEASE_KEY_PASSWORD/)
+  assert.match(androidReleaseScript, /SPAGENT_RELEASE_STORE_FILE[\s\S]*SPAGENT_RELEASE_STORE_PASSWORD[\s\S]*SPAGENT_RELEASE_KEY_ALIAS[\s\S]*SPAGENT_RELEASE_KEY_PASSWORD/)
   assert.match(androidReleaseScript, /GetEnvironmentVariable\(\$name, 'Process'\)/)
   assert.match(androidReleaseScript, /:app:assembleRelease/)
   assert.match(androidReleaseScript, /:app:assembleRelease --no-daemon/)

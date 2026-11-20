@@ -1,4 +1,4 @@
-package com.motioncare.app;
+package com.spagent.app;
 
 import android.Manifest;
 import android.content.Intent;

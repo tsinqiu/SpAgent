@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">MotionCare</string>
-    <string name="title_activity_main">MotionCare</string>
-    <string name="package_name">com.motioncare.app</string>
-    <string name="custom_url_scheme">com.motioncare.app</string>
+    <string name="app_name">SpAgent</string>
+    <string name="title_activity_main">SpAgent</string>
+    <string name="package_name">com.spagent.app</string>
+    <string name="custom_url_scheme">com.spagent.app</string>
 </resources>

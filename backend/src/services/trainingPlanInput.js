@@ -2,7 +2,8 @@ const { ApiError } = require('../errors');
 const { parseDate } = require('../http');
 
 const sports = ['running', 'cycling', 'swimming'];
-const goalTypes = ['custom', 'first_5k', 'regular_running'];
+const runningGoalTypes = Object.freeze(['first_5k', 'regular_running']);
+const goalTypes = ['custom', ...runningGoalTypes];
 const sessionTypes = ['easy', 'aerobic', 'recovery', 'other'];
 const sessionStatuses = ['pending', 'completed', 'skipped'];
 const weekdayLabels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
@@ -33,6 +34,11 @@ function addDays(date, count) {
   const day = new Date(`${date}T00:00:00.000Z`);
   day.setUTCDate(day.getUTCDate() + count);
   return day.toISOString().slice(0, 10);
+}
+
+function mondayOf(date) {
+  const weekday = new Date(`${date}T00:00:00Z`).getUTCDay() || 7;
+  return addDays(date, 1 - weekday);
 }
 
 function localToday() {
@@ -95,4 +101,4 @@ function readVersion(value) {
   return integer(value, 'version', 4294967295);
 }
 
-module.exports = { addDays, localToday, readPlan, readVersion, sessionStatuses, choice, weekdayLabels };
+module.exports = { addDays, mondayOf, localToday, readPlan, readVersion, sessionStatuses, choice, weekdayLabels, runningGoalTypes };

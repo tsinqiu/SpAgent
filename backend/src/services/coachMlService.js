@@ -156,7 +156,7 @@ function coverage(rows, latestDate, dateKey, days, predicate = () => true) {
 }
 
 function buildDataCompleteness(context = {}) {
-  const latestDate = context.latestDate || new Date().toISOString().slice(0, 10);
+  const latestDate = context.asOf || context.latestDate || new Date().toISOString().slice(0, 10);
   const activities = context.activities || [];
   const sleepRows = context.sleepRows || [];
   const trainingRows = context.trainingRows || [];
@@ -210,7 +210,7 @@ function assessWeather(features) {
 }
 
 function buildFeatureSet(overview = {}, context = {}) {
-  const latestDate = context.latestDate || new Date().toISOString().slice(0, 10);
+  const latestDate = context.asOf || context.latestDate || new Date().toISOString().slice(0, 10);
   const activities = context.activities || [];
   const sleepRows = context.sleepRows || [];
   const healthRows = context.healthRows || [];

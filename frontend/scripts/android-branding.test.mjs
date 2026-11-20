@@ -23,26 +23,26 @@ const [
   source('android/app/src/main/AndroidManifest.xml'),
   source('android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml'),
   source('android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml'),
-  source('android/app/src/main/res/drawable/motioncare_launcher_background.xml'),
-  source('android/app/src/main/res/drawable/motioncare_launcher_foreground.xml'),
+  source('android/app/src/main/res/drawable/spagent_launcher_background.xml'),
+  source('android/app/src/main/res/drawable/spagent_launcher_foreground.xml'),
   source('android/app/src/main/res/drawable/ic_launcher_background.xml'),
   source('android/app/src/main/res/drawable-v24/ic_launcher_foreground.xml'),
 ])
 
-test('Android launcher icon uses MotionCare adaptive icon resources', () => {
+test('Android launcher icon uses SpAgent adaptive icon resources', () => {
   assert.match(manifest, /android:icon="@mipmap\/ic_launcher"/)
   assert.match(manifest, /android:roundIcon="@mipmap\/ic_launcher_round"/)
-  assert.match(adaptiveIcon, /@drawable\/motioncare_launcher_background/)
-  assert.match(adaptiveIcon, /@drawable\/motioncare_launcher_foreground/)
-  assert.match(adaptiveRoundIcon, /@drawable\/motioncare_launcher_background/)
-  assert.match(adaptiveRoundIcon, /@drawable\/motioncare_launcher_foreground/)
+  assert.match(adaptiveIcon, /@drawable\/spagent_launcher_background/)
+  assert.match(adaptiveIcon, /@drawable\/spagent_launcher_foreground/)
+  assert.match(adaptiveRoundIcon, /@drawable\/spagent_launcher_background/)
+  assert.match(adaptiveRoundIcon, /@drawable\/spagent_launcher_foreground/)
 })
 
-test('MotionCare launcher art is deep green, simple, and not the default Android mark', () => {
+test('SpAgent launcher art is deep green, simple, and not the default Android mark', () => {
   assert.match(launcherBackground, /#2e681d/)
   assert.match(launcherBackground, /#15b66a/)
-  assert.match(launcherBackground, /MotionCare simple route launcher background/)
-  assert.match(launcherForeground, /MotionCare simple route runner launcher foreground/)
+  assert.match(launcherBackground, /SpAgent simple route launcher background/)
+  assert.match(launcherForeground, /SpAgent simple route runner launcher foreground/)
   assert.match(launcherForeground, /#ffffff/)
   assert.match(launcherForeground, /#f6d34d/)
   assert.match(launcherForeground, /#15b66a/)

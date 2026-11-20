@@ -3,15 +3,15 @@
     <section class="auth-card auth-card--quiet">
       <div class="auth-topline auth-topline--center">
         <div class="auth-brand auth-brand--plain">
-          <img class="auth-brand__icon" src="/icons/motioncare-icon.svg" alt="" />
+          <img class="auth-brand__icon" src="/icons/spagent-icon.svg" alt="" />
           <span>
-            <strong>MotionCare</strong>
+            <strong>SpAgent</strong>
           </span>
         </div>
       </div>
 
       <div class="auth-login-mark">
-        <img src="/icons/motioncare-icon.svg" alt="" />
+        <img src="/icons/spagent-icon.svg" alt="" />
       </div>
 
       <div class="auth-heading auth-heading--center">
@@ -23,7 +23,7 @@
           <span>邮箱</span>
           <div class="input-with-icon">
             <Mail :size="18" />
-            <input v-model.trim="form.email" type="email" autocomplete="email" placeholder="name@motioncare.com" required />
+            <input v-model.trim="form.email" type="email" autocomplete="email" placeholder="name@example.com" required />
           </div>
         </label>
 
@@ -45,7 +45,7 @@
           </div>
         </label>
 
-        <p v-if="localError || authSession.error" class="form-error">{{ localError || authSession.error }}</p>
+        <p v-if="localError || authSession.error" class="form-error" role="alert">{{ localError || authSession.error }}</p>
 
         <button class="auth-submit" type="submit" :disabled="authSession.loading">
           <LogIn :size="18" />
@@ -56,13 +56,14 @@
       <p class="auth-switch">
         还没有账号？
         <RouterLink :to="{ name: 'register', query: route.query }">立即注册</RouterLink>
-        <RouterLink :to="{ name: 'download' }">下载APK</RouterLink>
+        <RouterLink v-if="showApkDownloadEntry" :to="{ name: 'download' }">下载APK</RouterLink>
       </p>
     </section>
   </main>
 </template>
 
 <script setup>
+import { Capacitor } from '@capacitor/core'
 import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Eye, EyeOff, LockKeyhole, LogIn, Mail } from '@lucide/vue'
@@ -71,6 +72,7 @@ import { authSession, normalizeRedirect, signIn } from '@/stores/authStore'
 
 const route = useRoute()
 const router = useRouter()
+const showApkDownloadEntry = !Capacitor.isNativePlatform()
 const showPassword = ref(false)
 const localError = ref('')
 const form = reactive({

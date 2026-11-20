@@ -8,8 +8,9 @@ async function source(path) {
 
 const [
   appCss,
-  stylesCss,
   coachView,
+  coachPlanAgent,
+  coachPlanDraft,
   adminView,
   mainSource,
   statusView,
@@ -38,8 +39,9 @@ const [
   appShell,
 ] = await Promise.all([
   source('src/assets/app.css'),
-  source('src/assets/styles.css'),
   source('src/views/Coach.vue'),
+  source('src/components/CoachPlanAgent.vue'),
+  source('src/components/CoachPlanDraft.vue'),
   source('src/views/Admin.vue'),
   source('src/main.js'),
   source('src/views/Status.vue'),
@@ -85,10 +87,11 @@ test('phone content and form controls are allowed to shrink', () => {
 })
 
 test('coach layout contains long content inside the phone frame', () => {
-  assert.match(coachView, /\.coach-head\s*>\s*div\s*\{[^}]*min-width:\s*0/)
-  assert.match(coachView, /\.chat-surface\s*\{[\s\S]*?min-width:\s*0/)
-  assert.match(coachView, /\.chat-composer\s+textarea\s*\{[\s\S]*?min-width:\s*0/)
-  assert.match(coachView, /\.chat-bubble\s*\{[\s\S]*?overflow-wrap:\s*anywhere/)
+  assert.match(coachView, /\.chat-surface\s*\{[^}]*min-width:\s*0/)
+  assert.match(coachView, /\.chat-composer\s+textarea\s*\{[^}]*min-width:\s*0/)
+  assert.match(coachView, /\.chat-bubble\s*\{[^}]*overflow-wrap:\s*anywhere/)
+  assert.match(coachPlanAgent, /\.plan-agent__thread\s*\{[^}]*max-height:[^}]*overflow-y:\s*auto/)
+  assert.match(coachPlanAgent, /\.plan-agent__composer\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+44px/)
 })
 
 test('admin users render as mobile cards with a Vant confirmation dialog', () => {
@@ -126,23 +129,25 @@ test('the persisted theme is initialized before any route renders', () => {
   assert.match(mainSource, /initTheme\(\)[\s\S]*createApp\(App\)/)
 })
 
-test('mobile shell follows a green runner-analytics app direction', () => {
-  assert.match(appCss, /--app-green:\s*#15b66a/)
-  assert.match(appCss, /--app-top-green:\s*#2e681d/)
-  assert.match(appCss, /\.app-navbar\.van-nav-bar\s*\{[\s\S]*?background:\s*var\(--app-top-green\)/)
-  assert.match(appCss, /\.phone-frame\s+\.page-frame\s*\{[\s\S]*?linear-gradient\(180deg,\s*var\(--app-top-green\)\s*0\s*28px/)
-  assert.doesNotMatch(appCss, /\.rq-page-tabs/)
-  assert.match(appCss, /\.app-tabbar\.van-tabbar\s*\{[\s\S]*?border-top:\s*1px solid color-mix\(in srgb, var\(--app-green\) 18%, transparent\)/)
+test('mobile shell scrolls its main content and keeps navigation clear of safe areas', () => {
+  assert.match(appCss, /--safe-top:\s*env\(safe-area-inset-top,\s*0px\)/)
+  assert.match(appCss, /--safe-bottom:\s*env\(safe-area-inset-bottom,\s*0px\)/)
+  assert.match(appCss, /\.app-navbar\.van-nav-bar\s*\{[^}]*padding-top:\s*var\(--safe-top\)/)
+  assert.match(appCss, /\.app-tabbar\.van-tabbar\s*\{[^}]*padding-bottom:\s*var\(--safe-bottom\)/)
+  assert.match(appCss, /\.phone-frame\s+\.page-frame\s*\{[^}]*min-height:\s*0[^}]*padding-bottom:[^}]*var\(--safe-bottom\)[^}]*overflow-y:\s*auto/)
 })
 
-test('global top bar stays brand-led while nested pages get a scoped back action', () => {
+test('nested pages get a scoped back action and top-bar shortcuts are labeled', () => {
   assert.match(appShell, /:title="navTitle"/)
   assert.match(appShell, /:left-arrow="showBack"/)
   assert.match(appShell, /:left-text="showBack \? '返回' : ''"/)
-  assert.match(appShell, /const navTitle = computed\(\(\) => \(showBack\.value \? route\.meta\.title \|\| '返回' : 'MotionCare'\)\)/)
-  assert.doesNotMatch(appShell, /<template\s+#right/)
-  assert.doesNotMatch(appShell, /app-navbar-action/)
-  assert.doesNotMatch(appShell, /CirclePlus/)
+  assert.match(appShell, /@click-left="goBack"/)
+  assert.match(appShell, /const showBack = computed\([^\n]*route\.meta\.backTo/)
+  assert.match(appShell, /if \(event\.defaultPrevented\) return/)
+  assert.match(appShell, /router\.push\(route\.meta\.backTo \|\| '/)
+  assert.match(appShell, /v-if="!hideTabbar"/)
+  assert.match(appShell, /<button\b[^>]*:aria-label="pageAction\.label"[^>]*@click="handlePageAction"/)
+  assert.match(appShell, /<button\b[^>]*aria-label="[^"]+"[^>]*@click="goProfile"/)
 })
 
 test('primary tabbar exposes realtime workout recording as a first-level app function', () => {
@@ -151,11 +156,13 @@ test('primary tabbar exposes realtime workout recording as a first-level app fun
   assert.match(appCss, /\.app-tabbar-item--record\s+\.van-tabbar-item__icon\s*\{[\s\S]*?background:\s*var\(--app-green\)/)
 })
 
-test('status page exposes body, running power, and technique analysis sections', () => {
-  assert.match(statusView, /体能/)
-  assert.match(statusView, /跑力/)
-  assert.match(statusView, /技术/)
-  assert.match(statusView, /analysis-category-grid/)
+test('status page shows recovery data and opens running-power details', () => {
+  for (const metric of ['sleepScore', 'restingHeartRateBpm', 'avgStressLevel', 'avgHrv']) {
+    assert.match(statusView, new RegExp('<MetricCard\\b[^>]*metricValue\\(health\\.' + metric + '\\b'))
+  }
+  assert.match(statusView, /<button\b[^>]*@click="goPerformanceDetail"/)
+  assert.match(statusView, /function goPerformanceDetail\(\)\s*\{[^}]*router\.push\('\/status\/performance'\)/)
+  assert.match(statusView, /getPerformanceProfile\(\)/)
 })
 
 test('status page includes an RQ-style running power score band', () => {
@@ -185,31 +192,21 @@ test('status page mirrors runner five-power analysis with radar and load bars', 
   assert.match(appCss, /\.rq-load-bars\s+i\s*\{[\s\S]*?height:\s*var\(--bar-height\)/)
 })
 
-test('today page uses RQ-style training overview and daily advice panels', () => {
-  assert.match(todayView, /训练总览/)
-  assert.match(todayView, /每日建议/)
-  assert.match(todayView, /当前训练指数/)
-  assert.match(todayView, /rq-overview-panel/)
-  assert.match(todayView, /rq-daily-advice/)
-  assert.match(appCss, /\.rq-overview-panel\s*\{[\s\S]*?border-top:\s*4px solid var\(--app-green\)/)
+test('today shows the calculated training index and coaching guidance', () => {
+  assert.match(todayView, /<strong>\{\{\s*trainingIndexDisplay\s*\}\}<\/strong>/)
+  assert.match(todayView, /\{\{\s*compactTrainingAdvice\s*\}\}/)
+  assert.match(todayView, /const trainingIndexDisplay = computed\([^\n]*trainingIndexScore\.value \?\? '--'/)
+  assert.match(todayView, /getPerformanceProfile\(\)/)
+  assert.match(todayView, /getDailyBrief\(\)/)
 })
 
-test('main product pages stay focused without duplicate secondary navigation or cross-page CTAs', () => {
+test('main product pages use the shared navigation and keep shortcuts to training plans', () => {
   for (const view of [todayView, activitiesView, statusView, coachView, statisticsView]) {
     assert.doesNotMatch(view, /rq-page-tabs/)
   }
-
-  for (const view of [todayView, statusView, coachView, statisticsView]) {
-    assert.doesNotMatch(view, /<RouterLink/)
-    assert.doesNotMatch(view, /action-label="记录运动"/)
-    assert.doesNotMatch(view, /router\.push\('\/record'\)/)
-  }
-
-  assert.doesNotMatch(todayView, /rq-date-strip/)
-  assert.doesNotMatch(todayView, /dateStripDays/)
-  assert.doesNotMatch(statusView, /continue-panel/)
-  assert.match(trainingLoadView, /训练指数/)
-  assert.match(trainingLoadView, /配速区间/)
+  assert.match(todayView, /<nav\b[^>]*aria-label="今日快捷入口"/)
+  assert.match(todayView, /<RouterLink\b[^>]*v-for="item in todayActions"[^>]*:to="item\.to"/)
+  assert.match(todayView, /path:\s*'\/training-plans',\s*query:\s*\{\s*from:\s*'today'\s*\}/)
 })
 
 test('status subpages stay page-scoped without old secondary navigation or cross-page CTAs', () => {
@@ -224,16 +221,20 @@ test('status subpages stay page-scoped without old secondary navigation or cross
   assert.doesNotMatch(healthDetailView, /health-empty-actions/)
 })
 
-test('unframed main page headers sit in clean white panels below the green top band', () => {
-  assert.match(activitiesView, /\.activities-head\s*\{[\s\S]*?padding:\s*var\(--space-5\)[\s\S]*?background:\s*var\(--panel\)/)
-  assert.match(coachView, /\.coach-head\s*\{[\s\S]*?padding:\s*var\(--space-5\)[\s\S]*?background:\s*var\(--panel\)/)
+test('activity filters and coach actions fit beside flexible content', () => {
+  assert.match(activitiesView, /<button\b[^>]*@click="filterOpen = true"/)
+  assert.match(activitiesView, /\.feed-toolbar\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto/)
+  assert.match(activitiesView, /\.feed-toolbar__tabs\s*\{[^}]*min-width:\s*0/)
+  assert.match(coachView, /\.coach-chat-modes\s*\{[^}]*grid-template-columns:/)
+  assert.match(coachView, /\.chat-composer textarea\s*\{[^}]*min-width:\s*0/)
 })
 
 test('today page exposes an RQ-style weekly training rhythm panel', () => {
   assert.match(todayView, /本周训练节奏/)
   assert.match(todayView, /周负荷/)
-  assert.match(todayView, /训练日/)
-  assert.match(todayView, /完成度/)
+  assert.match(todayView, /有负荷记录/)
+  assert.doesNotMatch(todayView, /完成度|今日无训练安排/)
+  assert.match(todayView, /row\.dailyTrainingLoad \?\? row\.daily_training_load \?\? 0/)
   assert.match(todayView, /microcycle-panel/)
   assert.match(todayView, /microcycle-bars/)
   assert.match(todayView, /weeklyLoadBars/)
@@ -242,14 +243,12 @@ test('today page exposes an RQ-style weekly training rhythm panel', () => {
   assert.match(todayView, /\.microcycle-bars\s+i\s*\{[\s\S]*?height:\s*var\(--bar-height\)/)
 })
 
-test('today empty state still looks like a runner analysis dashboard', () => {
-  assert.match(todayView, /today-empty-rq-panel/)
-  assert.match(todayView, /新手跑力/)
-  assert.match(todayView, /训练节奏/)
-  assert.match(todayView, /数据同步/)
-  assert.match(todayView, /emptyLoadBars/)
-  assert.match(todayView, /\.today-empty-rq-panel,\s*\.today-empty-plan\s*\{[\s\S]*?border-top:\s*4px solid var\(--app-green\)/)
-  assert.match(todayView, /\.today-empty-bars\s+i::before\s*\{[\s\S]*?height:\s*var\(--bar-height\)/)
+test('today lets users step through dates and shows an empty state for days without activities', () => {
+  assert.match(todayView, /<button\b[^>]*aria-label="前一天"[^>]*@click="shiftSelectedDate\(-1\)"/)
+  assert.match(todayView, /<button\b[^>]*:disabled="!canShiftNextDate"[^>]*@click="shiftSelectedDate\(1\)"/)
+  assert.match(todayView, /<ActivityCard\s+v-for="activity in selectedDateActivities"/)
+  assert.match(todayView, /<article\b[^>]*v-if="!selectedDateActivities\.length"/)
+  assert.match(todayView, /<StateBlock[\s\S]*?@action="loadToday"/)
 })
 
 test('training load page presents training index and pace zones like a runner analysis tool', () => {
@@ -264,64 +263,41 @@ test('training load page presents training index and pace zones like a runner an
   assert.match(trainingLoadView, /hideOverlap:\s*true/)
 })
 
-test('training load copy uses user-facing metric labels instead of raw platform abbreviations', () => {
-  for (const source of [todayView, statusView, trainingLoadView]) {
-    assert.doesNotMatch(source, /\b(?:CTL|ATL|TSB)\b/)
+test('training load labels pair metric acronyms with plain language', () => {
+  for (const source of [todayView, statusView, healthDetailView]) {
+    for (const label of ['体能（CTL）', '疲劳（ATL）', '状态（TSB）']) {
+      assert.ok(source.includes(label), 'Missing training load label ' + label)
+    }
   }
-
-  assert.match(todayView, /体能储备/)
-  assert.match(todayView, /疲劳负荷/)
-  assert.match(todayView, /状态余量/)
-  assert.match(statusView, /体能储备/)
-  assert.match(statusView, /疲劳负荷/)
-  assert.match(statusView, /状态余量/)
-  assert.match(trainingLoadView, /体能储备/)
-  assert.match(trainingLoadView, /疲劳负荷/)
-  assert.match(trainingLoadView, /状态余量/)
-})
-
-test('health and training pages avoid raw metric abbreviations in visible copy', () => {
-  const rawVisibleMetric = /(?:>|label=|title=|eyebrow=|value:|label:|name:)\s*["'`{]?[^\n<]*\b(?:HRV|VO2max|FTP|RPE|bpm)\b/
-
-  for (const source of [todayView, statusView, trainingLoadView, healthDetailView, coachView]) {
-    assert.doesNotMatch(source, rawVisibleMetric)
-  }
-
-  assert.match(todayView, /心率变异/)
-  assert.match(statusView, /心率变异/)
-  assert.match(healthDetailView, /心率变异/)
-  assert.match(coachView, /心率变异/)
-  assert.match(trainingLoadView, /最大摄氧量/)
-  assert.match(trainingLoadView, /骑行阈值功率/)
+  assert.match(trainingLoadView, /训练指数/)
+  assert.match(trainingLoadView, /配速区间/)
   assert.match(trainingLoadView, /体感强度/)
-  assert.match(trainingLoadView, /次\/分/)
+
+  const weather = todayView.match(/<section\b[^>]*class="today-weather-card"[^>]*>[\s\S]*?<\/section>/)?.[0]
+  assert.ok(weather)
+  assert.doesNotMatch(weather, /<button\b|开启定位/)
 })
 
-test('release activity and status copy avoids reference-source labels and raw units', () => {
-  const rqReferenceCopy = /(?:>|aria-label=|title=)\s*["'`{]?[^\n<]*(?:RQ五力|RQrun|Qrun)/
-  const rawVisibleUnit = /(?:>|:value=|label=|title=|eyebrow=|unit:\s*|value:\s*|label:\s*|return\s+`)[^\n<`]*(?:\bbpm\b|\bW\b)/
-
-  assert.doesNotMatch(statusView, rqReferenceCopy)
-  assert.match(statusView, /跑步五力/)
-  assert.match(statusView, /五力雷达/)
-
-  for (const source of [
-    activityDetailView,
-    lapTable,
-    sessionDetails,
-    zoneDistribution,
-    startWorkoutView,
-    statisticsView,
-  ]) {
-    assert.doesNotMatch(source, rawVisibleUnit)
+test('health and training summaries present available metrics with descriptive labels', () => {
+  for (const label of ['睡眠', '静息心率', '心率变异']) {
+    assert.ok(statusView.includes(label), 'Missing recovery indicator ' + label)
   }
+  assert.match(healthDetailView, /暂无训练负荷数据/)
+  assert.match(coachView, /训练指数/)
+  assert.match(trainingLoadView, /部分健康指标暂时不可用/)
+  assert.match(trainingLoadView, /体感强度/)
+})
 
-  assert.match(activityDetailView, /次\/分/)
-  assert.match(lapTable, /次\/分/)
-  assert.match(sessionDetails, /次\/分/)
-  assert.match(zoneDistribution, /次\/分/)
-  assert.match(zoneDistribution, /瓦/)
-  assert.doesNotMatch(startWorkoutView, /心率|次\/分/)
+test('activity and status metric names give context for displayed units', () => {
+  assert.match(statusView, /aria-label="跑步五力雷达"/)
+  assert.doesNotMatch(statusView, /(?:>|aria-label=|title=)\s*["']?[^\n<]*(?:RQ五力|RQrun)/)
+  assert.match(activityDetailView, /createLineOption\('心率', 'bpm'/)
+  assert.match(activityDetailView, /createLineOption\('功率', 'W'/)
+  assert.match(statisticsView, /label: '平均心率', unit: 'bpm'/)
+  assert.match(lapTable, /心率/)
+  assert.match(sessionDetails, /心率/)
+  assert.match(zoneDistribution, /心率区间/)
+  assert.match(zoneDistribution, /功率区间/)
 })
 
 test('training load empty state never renders NaN in the score header', () => {
@@ -340,122 +316,69 @@ test('status empty state keeps RQ-style analysis affordances visible', () => {
   assert.match(statusView, /\.status-empty-rq-panel\s*\{[\s\S]*?border-top:\s*4px solid var\(--app-green\)/)
 })
 
-test('activity feed uses compact RQ-style training record cards', () => {
-  assert.match(activitiesView, /训练记录/)
-  assert.match(activitiesView, /最后一笔训练/)
-  assert.match(activitiesView, /latest-training-panel/)
-  assert.match(activityCard, /rq-activity-card/)
-  assert.match(appCss, /\.rq-activity-card\s*\{[\s\S]*?border-left:\s*4px solid var\(--sport-color\)/)
+test('activity feed renders cards with separate keyboard behavior for nested actions', () => {
+  assert.match(activitiesView, /<ActivityCard[\s\S]*?:activity="activity"[\s\S]*?@select="goToActivity"/)
+  assert.match(activitiesView, /@click\.stop="openEdit\(activity\)"/)
+  assert.match(activitiesView, /@click\.stop="removeManual\(activity\)"/)
+  assert.match(activityCard, /role="button"\s+tabindex="0"/)
+  assert.match(activityCard, /@keydown\.enter\.self=/)
+  assert.match(activityCard, /@keydown\.space\.self\.prevent=/)
 })
 
-test('activity detail opens with RQ-style training analysis and split panels', () => {
-  assert.match(activityDetailView, /训练分析/)
-  assert.match(activityDetailView, /训练负荷/)
-  assert.match(activityDetailView, /配速稳定/)
-  assert.match(activityDetailView, /class="detail-hero__title"/)
-  assert.match(activityDetailView, /rq-detail-summary/)
-  assert.match(activityDetailView, /rq-detail-splits/)
-  assert.match(appCss, /\.detail-hero\s*>\s*div:first-child\s*\{[\s\S]*?width:\s*100%[\s\S]*?min-width:\s*0/)
-  assert.match(appCss, /\.detail-hero__title\s*\{[\s\S]*?overflow:\s*hidden[\s\S]*?text-overflow:\s*ellipsis[\s\S]*?white-space:\s*nowrap/)
-  assert.match(appCss, /\.rq-detail-summary\s*\{[\s\S]*?border-top:\s*4px solid var\(--sport-color\)/)
-  assert.match(appCss, /\.rq-detail-summary__score\s+strong\s*\{[\s\S]*?font-variant-numeric:\s*tabular-nums[\s\S]*?white-space:\s*nowrap/)
+test('activity detail keeps metrics and splits available and wraps long titles', () => {
+  assert.match(activityDetailView, /aria-label="运动详情页签"/)
+  assert.match(activityDetailView, /activeTab === 'analysis'/)
+  assert.match(activityDetailView, /activeTab === 'splits'|class="detail-tab-panel splits-tab"/)
+  assert.match(activityDetailView, /<h1>\{\{\s*activityTitle\s*\}\}<\/h1>/)
+  assert.match(activityDetailView, /\.activity-title-card h1\s*\{[^}]*overflow-wrap:\s*anywhere/)
 })
 
-test('activity detail hero actions stay page-scoped without cross-page CTAs', () => {
-  assert.match(activityDetailView, /detail-action-bar/)
-  assert.match(activityDetailView, /detail-action detail-action--edit/)
-  assert.match(activityDetailView, /detail-action detail-action--danger/)
-  assert.doesNotMatch(activityDetailView, /detail-action--back/)
-  assert.doesNotMatch(activityDetailView, /返回列表|>\s*返回\s*</)
-  assert.doesNotMatch(activityDetailView, /to="\/activities"/)
-  assert.match(activityDetailView, /\.detail-action-bar\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/)
-  assert.match(activityDetailView, /\.detail-action\s*\{[\s\S]*?min-height:\s*44px/)
-  assert.match(activityDetailView, /\.detail-action--danger\s*\{[\s\S]*?border-color:\s*color-mix\(in srgb,\s*var\(--red\) 36%,\s*transparent\)/)
+test('activity detail provides item actions with touch targets and shell navigation', () => {
+  assert.match(activityDetailView, /aria-label="运动操作"/)
+  assert.match(activityDetailView, /<ManualActivityModal\b/)
+  assert.match(activityDetailView, /@click="removeActivity"/)
+  assert.match(activityDetailView, /\.detail-action-row button\s*\{[^}]*min-height:/)
+  assert.doesNotMatch(activityDetailView, /to="\/activities"|detail-action--back/)
 })
 
-test('coach page frames AI chat as a MotionCare training guidance workspace', () => {
-  assert.match(coachView, /智能教练/)
-  assert.match(coachView, /训练建议/)
-  assert.match(coachView, /恢复建议/)
-  assert.match(coachView, /coach-insight-panel/)
-  assert.match(coachView, /coach-prescription-grid/)
+test('coach exposes plan and advice modes and labels rule-based availability', () => {
+  assert.match(coachView, /aria-label="教练对话模式"/)
+  assert.match(coachView, /计划助手/)
+  assert.match(coachView, /日常问答/)
+  assert.match(coachView, /<CoachPlanAgent\b/)
+  assert.match(coachView, /activeProvider === 'rules'[\s\S]*?label: '本地规则'/)
+  assert.match(coachView, /label: '基础建议'/)
 })
 
-test('primary app pages avoid template-like English eyebrow copy', () => {
-  const localizedViews = [
-    todayView,
-    coachView,
-    activityDetailView,
-    syncView,
-    statisticsView,
-    lapTable,
-    sessionDetails,
-    zoneDistribution,
-  ]
-  const visibleTextPattern = (copy) => new RegExp(`>\\s*${copy.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*<`)
-
-  for (const copy of [
-    'Training Rhythm',
-    'AI Coach',
-    'Daily Brief',
-    'Local Coach Model',
-    'Subjective Input',
-    'Readiness',
-    'Split Preview',
-    'AI Analysis',
-    'Account',
-    'Sign in',
-    'History',
-    'Activity',
-    'Achievements',
-    'Laps',
-    'Zones',
-    'Session',
+test('primary app pages use Chinese labels for key operations', () => {
+  for (const [view, label] of [
+    [todayView, '今日快捷入口'],
+    [coachView, '教练对话模式'],
+    [activityDetailView, '运动操作'],
+    [syncView, '同步动态'],
+    [statisticsView, '趋势指标'],
   ]) {
-    for (const view of localizedViews) {
-      assert.doesNotMatch(view, visibleTextPattern(copy))
-    }
+    assert.ok(view.includes(label), 'Missing UI label ' + label)
   }
-
-  assert.match(todayView, /训练节奏/)
-  assert.match(coachView, /智能教练/)
-  assert.match(coachView, /每日简报/)
-  assert.match(coachView, /本地教练模型/)
-  assert.match(activityDetailView, /分段预览/)
-  assert.match(activityDetailView, /智能分析/)
-  assert.match(syncView, /账号状态/)
-  assert.match(syncView, /绑定账号/)
-  assert.match(syncView, /同步历史/)
-  assert.match(syncView, /同步动态/)
-  assert.match(statisticsView, /成就统计/)
+  for (const view of [todayView, coachView, activityDetailView, syncView, statisticsView, lapTable, sessionDetails, zoneDistribution]) {
+    assert.doesNotMatch(view, />\s*(?:Training Rhythm|AI Coach|Daily Brief|AI Analysis|Sign in|Achievements)\s*</)
+  }
 })
 
-test('health detail page shows an RQ-style recovery dashboard before raw metrics', () => {
-  assert.match(healthDetailView, /恢复看板/)
-  assert.match(healthDetailView, /身体电量/)
-  assert.match(healthDetailView, /睡眠质量/)
-  assert.match(healthDetailView, /health-date-selector/)
-  assert.match(healthDetailView, /health-date-chip/)
-  assert.match(healthDetailView, /formattedSelectedDate/)
-  assert.match(healthDetailView, /CalendarDays/)
-  assert.match(healthDetailView, /ChevronLeft/)
-  assert.match(healthDetailView, /ChevronRight/)
-  assert.match(healthDetailView, /health-rq-panel/)
-  assert.match(healthDetailView, /recovery-gauge/)
-  assert.doesNotMatch(healthDetailView, /\.date-input/)
-  assert.match(appCss, /\.health-rq-panel\s*\{[\s\S]*?border-top:\s*4px solid var\(--app-green\)/)
+test('health detail filters training load by a single labeled range control', () => {
+  assert.match(healthDetailView, /role="group" aria-label="健康度时间范围"/)
+  assert.match(healthDetailView, /:aria-pressed="range === item\.value"/)
+  assert.match(healthDetailView, /@click="range = item\.value"/)
+  assert.match(healthDetailView, /getLoadBalance\(\{ range: activeRange\.value\.value \}\)/)
+  assert.match(healthDetailView, /watch\(range, load/)
+  assert.doesNotMatch(healthDetailView, /aria-label="(?:上一周期|下一周期)"/)
 })
 
-test('health detail empty state keeps the recovery dashboard structure', () => {
-  assert.match(healthDetailView, /health-empty-rq-panel/)
-  assert.match(healthDetailView, /等待身体数据/)
-  assert.match(healthDetailView, /恢复概览/)
-  assert.match(healthDetailView, /睡眠质量/)
-  assert.match(healthDetailView, /设备同步后自动呈现/)
-  assert.doesNotMatch(healthDetailView, /同步 Garmin/)
-  assert.doesNotMatch(healthDetailView, /记录运动/)
-  assert.match(healthDetailView, /\.health-empty-rq-panel\s*\{[\s\S]*?border-top:\s*4px solid var\(--app-green\)/)
-  assert.doesNotMatch(healthDetailView, /\.health-empty-actions/)
+test('health detail distinguishes empty training data from a retryable request failure', () => {
+  assert.match(healthDetailView, /v-else-if="error"[^>]*title="健康度加载失败"[^>]*@action="load"/)
+  assert.match(healthDetailView, /v-else-if="!chartRows.length"[^>]*title="暂无训练负荷数据"/)
+  assert.match(healthDetailView, /if \(version === loadVersion\) trainingLoad\.value =/)
+  assert.match(healthDetailView, /<ChartPanel\b/)
 })
 
 test('records page presents personal bests as a compact ability profile', () => {
@@ -467,26 +390,11 @@ test('records page presents personal bests as a compact ability profile', () => 
   assert.match(appCss, /\.record-power-panel\s*\{[\s\S]*?border-top:\s*4px solid var\(--app-green\)/)
 })
 
-test('record page works as an RQ-style training entry hub', () => {
-  assert.match(recordActivityView, /训练入口/)
-  assert.match(recordActivityView, /实时记录/)
-  assert.match(recordActivityView, /补记训练/)
-  assert.match(recordActivityView, /开始记录/)
-  assert.match(recordActivityView, /const liveRecording = ref\(false\)/)
-  assert.match(recordActivityView, /class="record-rq-panel"[^>]*v-if="!liveRecording"/)
-  assert.match(recordActivityView, /class="record-choice-grid"[^>]*v-if="!liveRecording"/)
-  assert.match(recordActivityView, /@recording-state-change="liveRecording = \$event"/)
-  assert.match(recordActivityView, /scrollToLiveRecorder/)
-  assert.match(recordActivityView, /record-rq-panel/)
-  assert.match(recordActivityView, /record-action-grid/)
-  assert.match(recordActivityView, /record-choice-grid/)
-  assert.match(recordActivityView, /record-choice__icon/)
-  assert.match(recordActivityView, /record-choice--live/)
-  assert.match(recordActivityView, /StartWorkout/)
-  assert.doesNotMatch(recordActivityView, /<RouterLink/)
-  assert.match(appCss, /\.record-rq-panel\s*\{[\s\S]*?border-top:\s*4px solid var\(--app-green\)/)
-  assert.match(recordActivityView, /\.record-choice-grid\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/)
-  assert.match(recordActivityView, /\.record-choice\s*\{[\s\S]*?padding:\s*16px/)
+test('record page wires live recording and the manual activity form', () => {
+  assert.match(recordActivityView, /<StartWorkout\b[^>]*@add-manual="manualOpen = true"/)
+  assert.match(recordActivityView, /<ManualActivityModal\s+v-if="manualOpen"[\s\S]*?:save="createManualActivity"/)
+  assert.match(recordActivityView, /@saved="openSavedActivity"/)
+  assert.match(recordActivityView, /router\.push\(\{ name: 'activity-detail', params: \{ id: activity\.id \} \}\)/)
 })
 
 test('manual activity modal opens as a training capture panel', () => {
@@ -503,47 +411,32 @@ test('manual activity modal opens as a training capture panel', () => {
   assert.match(manualActivityModal, /\.manual-form-section\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/)
 })
 
-test('calendar page leads with monthly training continuity like a runner log', () => {
-  assert.match(calendarView, /本月训练/)
-  assert.match(calendarView, /训练连续性/)
-  assert.match(calendarView, /月跑量/)
-  assert.match(calendarView, /calendar-rq-panel/)
-  assert.match(calendarView, /calendar-summary-grid/)
-  assert.match(appCss, /\.calendar-rq-panel\s*\{[\s\S]*?border-top:\s*4px solid var\(--app-green\)/)
+test('calendar shows the selected month and reloads its training totals', () => {
+  assert.match(calendarView, /运动日历/)
+  assert.match(calendarView, /aria-label="本月训练概览"/)
+  assert.match(calendarView, /watch\(month, load/)
+  assert.match(calendarView, /@action="load"/)
+  assert.match(calendarView, /\.calendar-stat-grid\s*\{[^}]*grid-template-columns:/)
 })
 
-test('statistics page reframes charts as a training trend dashboard', () => {
-  assert.match(statisticsView, /统计控制/)
-  assert.match(statisticsView, /statistics-control-panel/)
-  assert.match(statisticsView, /statistics-period-toggle/)
-  assert.match(statisticsView, /statistics-sport-strip/)
-  assert.match(statisticsView, /statistics-month-switch/)
-  assert.match(statisticsView, /currentPeriodLabel/)
-  assert.doesNotMatch(statisticsView, /<SportTabs/)
-  assert.match(statisticsView, /训练趋势/)
-  assert.match(statisticsView, /月度跑量/)
-  assert.match(statisticsView, /负荷走势/)
-  assert.match(statisticsView, /statistics-rq-panel/)
-  assert.match(statisticsView, /stat-focus-grid/)
-  assert.match(appCss, /\.statistics-control-panel\s*\{[\s\S]*?border-top:\s*4px solid var\(--app-green\)/)
-  assert.match(appCss, /\.statistics-period-toggle\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/)
-  assert.match(appCss, /\.statistics-sport-strip\s*\{[\s\S]*?overflow-x:\s*auto/)
-  assert.match(appCss, /\.statistics-month-switch\s*\{[\s\S]*?grid-template-columns:\s*44px minmax\(0,\s*1fr\) 44px/)
-  assert.match(appCss, /\.statistics-rq-panel\s*\{[\s\S]*?border-top:\s*4px solid var\(--app-green\)/)
+test('trends support sport and range filtering and separate failures from empty data', () => {
+  assert.match(statisticsView, /aria-label="运动类型筛选"/)
+  assert.match(statisticsView, /role="group" aria-label="趋势时间范围"/)
+  assert.match(statisticsView, /:aria-pressed="range === item\.value"/)
+  assert.match(statisticsView, /watch\(\[range, activityType\], load/)
+  assert.match(statisticsView, /getMetricTrends\(\{[^}]*range: range\.value,[^}]*activity_type: activityType\.value/)
+  assert.match(statisticsView, /if \(version !== loadVersion\) return/)
+  assert.match(statisticsView, /v-else-if="error"[^>]*title="趋势加载失败"[^>]*@action="load"/)
+  assert.match(statisticsView, /title="暂无趋势数据"/)
+  assert.doesNotMatch(statisticsView, /aria-label="(?:上一周期|下一周期)"/)
 })
 
-test('start workout page feels like a live RQ-style workout recorder', () => {
-  assert.match(startWorkoutView, /实时训练/)
-  assert.match(startWorkoutView, /当前配速/)
-  assert.match(startWorkoutView, /训练采样/)
-  assert.match(startWorkoutView, /<section[^>]*class="workout-rq-panel"[^>]*v-if="!workout"/)
-  assert.match(startWorkoutView, /class="sport-start-grid"[\s\S]*v-if="!workout"/)
-  assert.match(startWorkoutView, /ref="recordingPanelRef"/)
-  assert.match(startWorkoutView, /defineEmits\(\['recording-state-change'\]\)/)
-  assert.match(startWorkoutView, /watch\(workout,[\s\S]*recording-state-change[\s\S]*Boolean\(current\)/)
-  assert.match(startWorkoutView, /function scrollActiveRecorderIntoView\(\)/)
-  assert.match(startWorkoutView, /scrollActiveRecorderIntoView\(\)/)
-  assert.match(startWorkoutView, /记录中/)
+test('live workout records GPS and keeps manual entry separate when recording', () => {
+  assert.match(startWorkoutView, /aria-label="实时运动数据"/)
+  assert.match(startWorkoutView, /aria-label="手动添加运动"[^>]*:disabled="sportLocked \|\| busy"[^>]*@click="\$emit\('add-manual'\)"/)
+  assert.match(startWorkoutView, /@click="toggleRecording"/)
+  assert.match(startWorkoutView, /if \(current\.status === 'paused'\) workout\.value = await resumeWorkout/)
+  assert.match(startWorkoutView, /:disabled="busy \|\| !workout \|\| elapsed < 1 \|\| trackPoints.length === 0" @click="finish"/)
   assert.match(startWorkoutView, /结束并保存/)
   assert.match(startWorkoutView, /function handleLocation\(position\)[\s\S]*error\.value = ''/)
   assert.match(startWorkoutView, /function handleLocationError\(err\)[\s\S]*trackPoints\.value\.length > 0[\s\S]*定位不稳定/)
@@ -551,10 +444,7 @@ test('start workout page feels like a live RQ-style workout recorder', () => {
   assert.match(startWorkoutView, /latitude/)
   assert.match(startWorkoutView, /longitude/)
   assert.match(startWorkoutView, /appendWorkoutTrackPoints/)
-  assert.doesNotMatch(startWorkoutView, /当前不读取 GPS 坐标/)
-  assert.match(startWorkoutView, /workout-rq-panel/)
-  assert.match(startWorkoutView, /workout-telemetry-grid/)
-  assert.match(appCss, /\.workout-rq-panel\s*\{[\s\S]*?border-top:\s*4px solid var\(--app-green\)/)
+  assert.doesNotMatch(startWorkoutView, /定位功能后续接入/)
 })
 
 test('profile page presents the account as a runner profile dashboard', () => {
@@ -568,19 +458,13 @@ test('profile page presents the account as a runner profile dashboard', () => {
   assert.match(appCss, /\.profile-rq-panel\s*\{[\s\S]*?border-top:\s*4px solid var\(--app-green\)/)
 })
 
-test('profile, settings, and security pages contain long account text gracefully', () => {
-  assert.match(meView, /profile-head__main/)
+test('profile, settings, and security pages allow long account text to fit', () => {
   assert.match(meView, /class="profile-meta__name"/)
-  assert.match(meView, /\.profile-meta__name\s*\{[\s\S]*?overflow:\s*hidden[\s\S]*?text-overflow:\s*ellipsis[\s\S]*?white-space:\s*nowrap/)
-  assert.match(appCss, /\.profile-head\s*\{[\s\S]*?display:\s*grid/)
-  assert.match(appCss, /\.profile-head__main\s*\{[\s\S]*?grid-template-columns:\s*auto\s+minmax\(0,\s*1fr\)\s+auto/)
-  assert.match(appCss, /\.runner-profile-grid\s*\{[\s\S]*?grid-column:\s*1\s*\/\s*-1/)
-  assert.match(settingsView, /account-summary__body/)
-  assert.match(appCss, /\.account-summary__body\s*\{[\s\S]*?min-width:\s*0/)
-  assert.match(appCss, /\.account-summary__body\s+:is\(strong,\s*span,\s*small\)\s*\{[\s\S]*?overflow:\s*hidden[\s\S]*?text-overflow:\s*ellipsis[\s\S]*?white-space:\s*nowrap/)
-  assert.match(securityView, /security-log-list/)
+  assert.match(meView, /\.profile-meta__name\s*\{[^}]*overflow:\s*hidden[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/)
+  assert.match(appCss, /\.profile-head__main\s*\{[^}]*grid-template-columns:\s*auto\s+minmax\(0,\s*1fr\)\s+auto/)
+  assert.match(settingsView, /\.profile-setting-card :is\(input, select\)\s*\{[^}]*min-width:\s*0/)
   assert.match(securityView, /security-log-list__value/)
-  assert.match(appCss, /\.security-log-list__value\s*\{[\s\S]*?overflow-wrap:\s*anywhere/)
+  assert.match(appCss, /\.security-log-list__value\s*\{[^}]*overflow-wrap:\s*anywhere/)
 })
 
 test('security page opens as a runner data protection dashboard', () => {
@@ -598,39 +482,24 @@ test('security page opens as a runner data protection dashboard', () => {
   assert.match(appCss, /\.security-protection-grid\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/)
 })
 
-test('settings page opens as a runner preference dashboard', () => {
-  assert.match(settingsView, /设置偏好/)
-  assert.match(settingsView, /资料完整度/)
-  assert.match(settingsView, /训练单位/)
-  assert.match(settingsView, /隐私策略/)
-  assert.match(settingsView, /保存偏好/)
-  assert.match(settingsView, /账号状态/)
-  assert.match(settingsView, /accountStatusLabel/)
-  assert.doesNotMatch(settingsView, /状态：\{\{\s*authSession\.user\?\.status/)
-  assert.doesNotMatch(settingsView, /'active'/)
-  assert.match(settingsView, /settings-rq-panel/)
-  assert.match(settingsView, /settings-preference-grid/)
-  assert.match(settingsView, /settings-save-card/)
-  assert.match(appCss, /\.settings-rq-panel\s*\{[\s\S]*?border-top:\s*4px solid var\(--app-green\)/)
-  assert.match(appCss, /\.settings-preference-grid\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/)
+test('settings saves athlete profile and training preferences', () => {
+  for (const label of ['个人信息', '身体数据', '偏好设置', '生理指标', '性能阈值', '体能水平']) {
+    assert.ok(settingsView.includes(label), 'Missing profile setting section ' + label)
+  }
+  assert.match(settingsView, /@submit\.prevent="save"/)
+  assert.match(settingsView, /type="submit" :disabled="saving"/)
+  assert.match(settingsView, /设置已保存。/)
+  assert.match(settingsView, /设置保存失败/)
 })
 
-test('sync page leads with a data source health panel', () => {
-  assert.match(syncView, /数据源状态/)
-  assert.match(syncView, /连接健康/)
-  assert.match(syncView, /导入记录/)
-  assert.match(syncView, /sync-rq-panel/)
-  assert.match(syncView, /sync-health-grid/)
-  assert.match(syncView, /sync-connect-form/)
-  assert.match(syncView, /sync-connection-panel/)
-  assert.match(syncView, /sync-layout--connected/)
-  assert.match(syncView, /v-if="account\.exists"[\s\S]*sync-connection-panel/)
-  assert.doesNotMatch(syncView, /sync-status-line/)
-  assert.doesNotMatch(syncView, /provider-meta/)
-  assert.doesNotMatch(syncView, /没有本地 Garmin 记录/)
-  assert.match(appCss, /\.sync-rq-panel\s*\{[\s\S]*?border-top:\s*4px solid var\(--app-green\)/)
-  assert.match(appCss, /\.sync-connect-form\s*\{[\s\S]*?border-top:\s*4px solid color-mix\(in srgb,\s*var\(--app-green\) 78%,\s*var\(--border\)\)/)
-  assert.match(appCss, /\.sync-connection-summary\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/)
+test('sync shows Garmin connection state and activity history', () => {
+  assert.match(syncView, /连接你的 Garmin 账号/)
+  assert.match(syncView, /Garmin 已连接.*等待绑定账号/)
+  assert.match(syncView, /v-if="account\.exists"[^>]*sync-connection-panel/)
+  assert.match(syncView, /更新 Garmin 绑定.*绑定 Garmin/)
+  assert.match(syncView, /最近同步/)
+  assert.match(syncView, /同步动态/)
+  assert.match(syncView, /<StateBlock\b/)
 })
 
 test('sync page disabled actions keep mobile breathing room', () => {
@@ -665,39 +534,21 @@ test('shoes empty state keeps an equipment readiness panel', () => {
   assert.match(shoesView, /\.shoe-empty-actions\s*\{[\s\S]*?grid-template-columns:\s*1fr/)
 })
 
-test('login page is quiet, elegant, and free of fake readiness metrics', () => {
-  assert.match(loginView, /auth-card--quiet/)
-  assert.match(loginView, /auth-login-mark/)
+test('login provides account and recovery controls without fake readiness metrics', () => {
   assert.match(loginView, /欢迎回来/)
-  assert.match(loginView, /训练记录与恢复状态/)
-  assert.match(loginView, /class="auth-brand auth-brand--plain"/)
-  assert.match(loginView, /\/icons\/motioncare-icon\.svg/)
-  assert.doesNotMatch(loginView, /brand-mark--runner/)
-  assert.doesNotMatch(loginView, /auth-theme-toggle/)
-  assert.doesNotMatch(loginView, /useThemeMode/)
-  assert.doesNotMatch(loginView, /今日跑力/)
-  assert.doesNotMatch(loginView, /auth-rq-panel/)
-  assert.doesNotMatch(loginView, /auth-runner-grid/)
-  assert.doesNotMatch(loginView, />68</)
-  assert.doesNotMatch(stylesCss, /\.auth-page\s*\{[\s\S]*?radial-gradient/)
-  assert.match(appCss, /\.auth-card--quiet\s*\{[\s\S]*?border-top:\s*4px solid var\(--app-top-green\)/)
-  assert.match(appCss, /\.auth-login-mark\s+img\s*\{[\s\S]*?width:\s*100%/)
-  assert.match(appCss, /\.auth-brand--plain\s*\{[\s\S]*?justify-content:\s*center/)
+  assert.match(loginView, /autocomplete="email"/)
+  assert.match(loginView, /autocomplete="current-password"/)
+  assert.match(loginView, /隐藏密码.*显示密码/)
+  assert.match(loginView, /name: 'register'/)
+  assert.doesNotMatch(loginView, /今日跑力|auth-runner-grid|>68</)
 })
 
-test('register page frames onboarding as a runner profile setup', () => {
-  assert.match(registerView, /建立跑者档案/)
-  assert.match(registerView, /数据源/)
-  assert.match(registerView, /训练目标/)
-  assert.match(registerView, /class="auth-brand auth-brand--plain"/)
-  assert.match(registerView, /\/icons\/motioncare-icon\.svg/)
-  assert.match(registerView, /耐力赛/)
-  assert.doesNotMatch(registerView, /5K 到全马/)
-  assert.doesNotMatch(registerView, /brand-mark--runner/)
-  assert.doesNotMatch(registerView, /auth-theme-toggle/)
-  assert.doesNotMatch(registerView, /useThemeMode/)
-  assert.match(registerView, /auth-setup-panel/)
-  assert.match(registerView, /auth-setup-grid/)
-  assert.match(appCss, /\.auth-setup-panel\s*\{[\s\S]*?border-top:\s*4px solid var\(--app-green\)/)
-  assert.match(appCss, /\.auth-setup-grid\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/)
+test('registration requires account details and confirmation without unrelated fields', () => {
+  assert.match(registerView, /注册 SpAgent/)
+  assert.match(registerView, /autocomplete="username"/)
+  assert.match(registerView, /autocomplete="email"/)
+  assert.match(registerView, /v-model="form.confirmPassword"/)
+  assert.match(registerView, /form\.password !== form\.confirmPassword/)
+  assert.match(registerView, /name: 'login'/)
+  assert.doesNotMatch(registerView, /数据源|训练目标/)
 })

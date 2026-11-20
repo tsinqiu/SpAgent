@@ -15,6 +15,7 @@ function resolveMediaUrl(value) {
 }
 
 export function normalizePost(row = {}) {
+  const imagePath = row.imagePath || row.image_path || row.imageUrl || row.image_url || ''
   return {
     ...row,
     id: row.id,
@@ -35,7 +36,8 @@ export function normalizePost(row = {}) {
     weatherCondition: row.weatherCondition || row.weather_condition || '',
     temperatureC: row.temperatureC ?? row.temperature_c ?? null,
     visibility: row.visibility || 'public',
-    imageUrl: resolveMediaUrl(row.imageUrl || row.image_url || row.imagePath || row.image_path || ''),
+    imagePath,
+    imageUrl: resolveMediaUrl(imagePath),
     imageOriginalName: row.imageOriginalName || row.image_original_name || '',
     imageSizeBytes: row.imageSizeBytes ?? row.image_size_bytes ?? null,
     likeCount: Number(row.likeCount ?? row.likes ?? 0),

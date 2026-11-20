@@ -1,11 +1,11 @@
 function startupErrorMessage(error, host, port) {
   if (error.code === 'EADDRINUSE') {
-    return `Failed to start MotionCare API: ${host}:${port} is already in use`;
+    return `Failed to start SpAgent API: ${host}:${port} is already in use`;
   }
   if (error.code === 'EACCES') {
-    return `Failed to start MotionCare API: permission denied for ${host}:${port}`;
+    return `Failed to start SpAgent API: permission denied for ${host}:${port}`;
   }
-  return `Failed to start MotionCare API: ${error.message}`;
+  return `Failed to start SpAgent API: ${error.message}`;
 }
 
 function startServer({
@@ -23,7 +23,7 @@ function startServer({
       onError(error);
       return;
     }
-    logger.log(`MotionCare API listening on http://${host}:${port}`);
+    logger.log(`SpAgent API listening on http://${host}:${port}`);
   });
 }
 

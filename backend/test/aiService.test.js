@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 
 const aiService = require('../src/services/aiService');
 const activityService = require('../src/services/activityService');
+const coachMlService = require('../src/services/coachMlService');
 const config = require('../src/config');
 const db = require('../src/db');
 const { ApiError } = require('../src/errors');
@@ -23,14 +24,16 @@ function withActivityStubs(stubs, fn) {
     });
 }
 
-function withAiEnvironment({ activityStubs = {}, dbQuery, aiConfig = {}, mlConfig = {}, fetchImpl }, fn) {
+function withAiEnvironment({ activityStubs = {}, dbQuery, aiConfig = {}, mlConfig = {}, mlPredict, fetchImpl }, fn) {
   const originalDbQuery = db.query;
   const originalFetch = global.fetch;
   const originalAiConfig = { ...config.ai };
   const originalMlConfig = { ...config.ml };
+  const originalPredict = coachMlService.predict;
 
   if (dbQuery) db.query = dbQuery;
   if (fetchImpl) global.fetch = fetchImpl;
+  if (mlPredict) coachMlService.predict = mlPredict;
   Object.assign(config.ai, aiConfig);
   Object.assign(config.ml, { coachModelPath: '__missing_coach_model__.joblib', ...mlConfig });
 
@@ -40,6 +43,7 @@ function withAiEnvironment({ activityStubs = {}, dbQuery, aiConfig = {}, mlConfi
       global.fetch = originalFetch;
       Object.assign(config.ai, originalAiConfig);
       Object.assign(config.ml, originalMlConfig);
+      coachMlService.predict = originalPredict;
     });
 }
 
@@ -109,6 +113,19 @@ function ragDbQuery(sql) {
   return [];
 }
 
+function steadyRagDbQuery(sql) {
+  const rows = ragDbQuery(sql);
+  if (sql.includes('FROM DailyHealthSummaries')) return rows.map(row => ({ ...row, avgStressLevel: 20, bodyBatteryDrained: 20 }));
+  if (sql.includes('FROM SleepSummaries')) return rows.map(row => ({ ...row, durationS: 27000, sleepScore: 82, hrvStatus: 'balanced' }));
+  if (sql.includes('FROM TrainingStatusSnapshots')) {
+    return rows.map(row => ({ ...row, acuteTrainingLoad: 500, chronicTrainingLoad: 500, acuteChronicWorkloadRatio: 1 }));
+  }
+  if (sql.includes('FROM Activities a') && sql.includes('LEFT JOIN ActivitySummaries') && !sql.includes('COUNT(*)')) {
+    return rows.map(row => ({ ...row, temperatureC: 20, feelsLikeC: 20, humidityPercent: 45, activityTrainingLoad: 15 }));
+  }
+  return rows;
+}
+
 test('aiService reports DeepSeek provider with rule fallback', async () => {
   const health = await aiService.getHealth();
 
@@ -131,19 +148,27 @@ test('aiService stays serviceable through rules when DeepSeek is not configured'
   });
 });
 
-test('aiService daily brief uses visible dashboard overview', async () => {
+test('aiService daily brief summarizes only owned and recent activities', async () => {
   await withAiEnvironment({
-    dbQuery: async () => [],
+    dbQuery: async (sql, args) => {
+      if (sql.includes('FROM Activities a')) {
+        assert.match(sql, /a\.owner_user_id = \?/);
+        assert.doesNotMatch(sql, /owner_user_id IS NULL/);
+        assert.equal(args[0], 7);
+      }
+      return ragDbQuery(sql);
+    },
     aiConfig: { deepseekApiKey: '' },
     activityStubs: {
-      getDashboardOverview: async (filters) => {
-      assert.deepEqual(filters, { owner: 'all', ownerUserId: 7 });
-      return {
-        recentActivities: [{ id: 1, activityType: 'running', distanceM: 5000 }],
-        monthlySummary: { activityCount: 1, totalDistanceKm: 5 },
-        trainingLoad: [{ dailyTrainingLoad: 80, ctl: 20, atl: 24, tsb: -4 }]
-      };
-    }
+      getSummaryStats: async (filters) => {
+        assert.equal(filters.owner, 'mine');
+        assert.equal(filters.ownerUserId, 7);
+        return { activityCount: 1, totalDistanceKm: 5 };
+      },
+      getLoadBalance: async (filters) => {
+        assert.equal(filters.ownerUserId, 7);
+        return [{ dailyTrainingLoad: 80, ctl: 20, atl: 24, tsb: -4 }];
+      }
     }
   }, async () => {
     const brief = await aiService.getDailyBrief({ id: 7 });
@@ -156,10 +181,60 @@ test('aiService daily brief uses visible dashboard overview', async () => {
   });
 });
 
-test('aiService daily brief uses DeepSeek JSON with RAG system context', async () => {
+test('AI context uses calendar windows ending today and keeps an old record date separate', async () => {
+  await withAiEnvironment({
+    dbQuery: async (sql, args) => {
+      if (sql.includes('MAX(latest_date)')) return [{ latestDate: '2026-08-17' }];
+      if (sql.includes('FROM Activities a')) assert.deepEqual(args, [7, '2026-10-24', '2026-11-20']);
+      else assert.deepEqual(args, [7, '2026-11-07', '2026-11-20']);
+      return [];
+    }
+  }, async () => {
+    const context = await aiService.__private.getRagContext({ id: 7 }, '2026-11-20');
+    assert.equal(context.latestDate, '2026-08-17');
+    assert.equal(context.asOf, '2026-11-20');
+    assert.equal(context.signals.activityCount28d, 0);
+    const prompt = aiService.__private.buildCoachSystemPrompt(context, { trainingLoad: [] });
+    assert.match(prompt, /统计截至: 2026-11-20；最近有效记录: 2026-08-17/);
+    assert.match(prompt, /综合风险等级: 数据不足，无法判断/);
+    assert.doesNotMatch(prompt, /当前 TSB 0/);
+  });
+});
+
+test('chat returns immediate local emergency guidance without database or model access', async () => {
+  let unexpected = 0;
+  await withAiEnvironment({
+    dbQuery: () => { unexpected += 1; return []; },
+    fetchImpl: () => { unexpected += 1; throw new Error('unexpected fetch'); }
+  }, async () => {
+    const result = await aiService.chat({ message: '跑步时胸口疼、头晕，可以继续吗？' }, { id: 7 });
+    assert.equal(result.meta.ai.reason, 'urgent_safety');
+    assert.match(result.data.content, /立即停止运动并联系当地急救服务/);
+    assert.deepEqual(result.data.quickReplies, []);
+    assert.equal(unexpected, 0);
+  });
+});
+
+test('time-capped running arrangements move to the validated plan flow without free-text durations', async () => {
+  let calls = 0;
+  await withAiEnvironment({
+    dbQuery: () => { calls += 1; return []; },
+    fetchImpl: () => { calls += 1; throw new Error('unexpected fetch'); }
+  }, async () => {
+    const message = '想开始规律跑步，每周二、六能练，我只有 10 分钟，帮我安排走跑。';
+    const result = await aiService.chat({ message }, { id: 7 });
+    assert.equal(result.meta.ai.reason, 'structured_duration');
+    assert.equal(result.data.nextStep, 'plan_assistant');
+    assert.equal(require('../src/services/coachAgentRules').interpretWithRules(message).maxSessionMinutes, 10);
+    assert.equal(calls, 0);
+  });
+});
+
+test('aiService daily brief accepts a DeepSeek recommendation and retains local facts', async () => {
   let requestBody;
   await withAiEnvironment({
-    dbQuery: ragDbQuery,
+    dbQuery: steadyRagDbQuery,
+    mlPredict: async () => ({ provider: 'rules', riskLevel: 'green', loadAction: 'maintain' }),
     aiConfig: {
       deepseekApiKey: 'test-key',
       deepseekModel: 'deepseek-chat',
@@ -212,8 +287,9 @@ test('aiService daily brief uses DeepSeek JSON with RAG system context', async (
 
     assert.equal(result.meta.ai.provider, 'deepseek');
     assert.equal(result.meta.ai.fallback, false);
-    assert.equal(result.data.headline, 'DeepSeek 恢复建议');
-    assert.equal(result.data.placements.trainingLoad.text, '降低强度。');
+    assert.equal(result.data.recommendation, '今天以恢复跑和拉伸为主，避开高温时段。');
+    assert.notEqual(result.data.headline, 'DeepSeek 恢复建议');
+    assert.notEqual(result.data.placements.trainingLoad.text, '降低强度。');
     assert.equal(result.data.ml.provider, 'rules');
     assert.equal(result.meta.ai.contextSignals.mlProvider, 'rules');
     assert.equal(result.data.metrics.length, 4);
@@ -228,7 +304,8 @@ test('aiService daily brief uses DeepSeek JSON with RAG system context', async (
 
 test('aiService daily brief falls back to rules for invalid DeepSeek JSON', async () => {
   await withAiEnvironment({
-    dbQuery: ragDbQuery,
+    dbQuery: steadyRagDbQuery,
+    mlPredict: async () => ({ provider: 'rules', riskLevel: 'green', loadAction: 'maintain' }),
     aiConfig: {
       deepseekApiKey: 'test-key',
       fallbackRules: true

@@ -11,6 +11,7 @@ const { asyncHandler, parseEnum, parseKeyword, parsePage, parsePageSize, parsePo
 const { authenticate, optionalAuthenticate } = require('../middleware/authMiddleware');
 const { sendCreated, sendData } = require('../response');
 const { removeUploadedFile, validateUploadedFile } = require('../services/uploadSecurity');
+const { preventPhotoCaching, sendPrivatePhoto } = require('../services/privatePhoto');
 
 const VISIBILITY = ['private', 'followers', 'public'];
 const SHARE_CHANNELS = ['copy_link', 'wechat', 'qq', 'weibo', 'system'];
@@ -114,6 +115,12 @@ function createCommunityRouter({ communityService = defaultCommunityService, aut
     })
   );
 
+  router.get('/community/posts/:id/image', preventPhotoCaching, maybeAuth, asyncHandler(async (req, res) => {
+    const postId = parsePositiveId(req.params.id, 'post id');
+    const imagePath = await communityService.getPostImagePath(postId, req.user);
+    await sendPrivatePhoto(res, imagePath, 'community-images', config.uploads.communityImagesDir);
+  }));
+
   router.get(
     '/community/posts/:id/comments',
     maybeAuth,
@@ -191,3 +198,12 @@ function createCommunityRouter({ communityService = defaultCommunityService, aut
 }
 
 module.exports = createCommunityRouter;
+module.exports.createPublicImageRouter = function createPublicImageRouter(communityService = defaultCommunityService) {
+  const router = express.Router();
+  router.get('/:filename', asyncHandler(async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const imagePath = await communityService.getPublicImagePath(`/uploads/community-images/${req.params.filename}`);
+    await sendPrivatePhoto(res, imagePath, 'community-images', config.uploads.communityImagesDir);
+  }));
+  return router;
+};

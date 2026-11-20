@@ -3,6 +3,10 @@ const defaultAuthService = require('../services/authService');
 const defaultPlanService = require('../services/trainingPlanService');
 const defaultContextService = require('../services/trainingContextService');
 const defaultExecutionService = require('../services/trainingExecutionService');
+const defaultWeeklyReportService = require('../services/weeklyReportService');
+const weeklyGuidanceService = require('../services/weeklyGuidanceService');
+const trainingPreferenceService = require('../services/trainingPreferenceService');
+const trainingReminderService = require('../services/trainingReminderService');
 const { authenticate } = require('../middleware/authMiddleware');
 const { asyncHandler, parsePositiveId } = require('../http');
 const { sendData, sendCreated } = require('../response');
@@ -12,7 +16,8 @@ function createTrainingPlanRouter({
   authService = defaultAuthService,
   planService = defaultPlanService,
   contextService = defaultContextService,
-  executionService = defaultExecutionService
+  executionService = defaultExecutionService,
+  weeklyReportService = defaultWeeklyReportService
 } = {}) {
   const router = express.Router();
   const requireAuth = authenticate(authService);
@@ -23,6 +28,22 @@ function createTrainingPlanRouter({
   };
 
   route('get', '/training/context', req => contextService.getContext(req.user.id));
+  route('get', '/training/today', req => planService.getToday(req.user.id));
+  route('get', '/training/weekly-report', req => weeklyReportService.getWeeklyReport(req.user.id, req.query.week_start));
+  route('get', '/training/weekly-guidance', req => weeklyGuidanceService.getWeeklyGuidance(req.user.id));
+  router.use('/training/reminders', (_req, res, next) => {
+    res.set('Cache-Control', 'no-store');
+    next();
+  });
+  route('get', '/training/reminders', req => trainingReminderService.list(req.user.id));
+  route('get', '/training/reminders/preferences', req => trainingReminderService.getPreferences(req.user.id));
+  route('put', '/training/reminders/preferences', req => trainingReminderService.savePreferences(req.user.id, req.body));
+  route('post', '/training/reminders/:id/dismiss', req => trainingReminderService.dismiss(
+    req.user.id, parsePositiveId(req.params.id, 'reminder id')
+  ));
+  route('get', '/training/preferences', req => trainingPreferenceService.get(req.user.id));
+  route('put', '/training/preferences', req => trainingPreferenceService.save(req.user.id, req.body));
+  route('delete', '/training/preferences', req => trainingPreferenceService.clear(req.user.id));
   route('get', '/training-plans', req => planService.list(req.user.id));
   route('get', '/training-plans/:id', req => planService.get(req.user.id, planId(req)));
   route('post', '/training-plans', req => planService.create(req.user.id, readPlan(req.body)), sendCreated);

@@ -176,9 +176,10 @@ import { useRoute } from 'vue-router'
 import { CalendarDays, Check, ChevronDown, X } from '@lucide/vue'
 
 import StateBlock from '@/components/StateBlock.vue'
+import { readSavedValue } from '@/services/browserStorage'
 
 const route = useRoute()
-const ATHLETE_PROFILE_STORAGE_KEY = 'motioncare-athlete-profile'
+const ATHLETE_PROFILE_STORAGE_KEY = 'spagent-athlete-profile'
 const athleteProfile = reactive({
   gender: '',
   birthDate: '',
@@ -265,12 +266,12 @@ function chooseOption(value) {
 
 function syncNavTitle() {
   const title = isBodyEntry.value ? '身体数据' : ''
-  window.dispatchEvent(new CustomEvent('motioncare:nav-title', { detail: { title } }))
+  window.dispatchEvent(new CustomEvent('spagent:nav-title', { detail: { title } }))
 }
 
 function loadAthleteProfile() {
   try {
-    const raw = window.localStorage.getItem(ATHLETE_PROFILE_STORAGE_KEY)
+    const raw = readSavedValue(window.localStorage, ATHLETE_PROFILE_STORAGE_KEY)
     if (!raw) return
     const data = JSON.parse(raw)
     Object.keys(athleteProfile).forEach((key) => {
@@ -333,7 +334,7 @@ watch(activeSelectKey, (key) => {
 })
 
 onBeforeUnmount(() => {
-  window.dispatchEvent(new CustomEvent('motioncare:nav-title', { detail: { title: '' } }))
+  window.dispatchEvent(new CustomEvent('spagent:nav-title', { detail: { title: '' } }))
   document.body.style.overflow = ''
 })
 </script>

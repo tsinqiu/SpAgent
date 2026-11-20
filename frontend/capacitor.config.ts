@@ -3,8 +3,8 @@
 import type { CapacitorConfig } from '@capacitor/cli'
 
 const config: CapacitorConfig = {
-  appId: 'com.motioncare.app',
-  appName: 'MotionCare',
+  appId: 'com.spagent.app',
+  appName: 'SpAgent',
   webDir: 'dist',
   backgroundColor: '#eef8f2',
   server: {

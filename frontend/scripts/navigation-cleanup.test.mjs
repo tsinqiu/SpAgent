@@ -18,21 +18,28 @@ test('nested app pages declare stable parent back targets', () => {
   const nestedRoutes = [
     ['activity-detail', '/activities'],
     ['status-health', '/status'],
+    ['status-performance', '/status'],
     ['status-training-load', '/status'],
     ['status-trends', '/status'],
     ['status-calendar', '/status'],
     ['status-records', '/status'],
+    ['training-plans', '/explore'],
+    ['explore-events', '/explore'],
+    ['explore-courses', '/explore'],
+    ['explore-routes', '/explore'],
+    ['weekly-report', '/explore'],
     ['me-sync', '/me'],
     ['me-shoes', '/me'],
     ['me-security', '/me'],
     ['me-settings', '/me'],
+    ['training-preferences', '/me'],
     ['me-admin', '/me'],
   ]
 
   for (const [name, backTo] of nestedRoutes) {
     assert.match(
       routerSource,
-      new RegExp(`name:\\s*'${name}'[\\s\\S]*?meta:\\s*\\{[^}]*backTo:\\s*'${backTo}'`),
+      new RegExp(`name:\\s*'${name}'[^}]*?meta:\\s*\\{[^}]*backTo:\\s*'${backTo}'`),
     )
   }
 })
@@ -42,7 +49,10 @@ test('app shell renders a scoped back button for nested pages', () => {
   assert.match(appShell, /:left-arrow="showBack"/)
   assert.match(appShell, /:left-text="showBack \? '返回' : ''"/)
   assert.match(appShell, /@click-left="goBack"/)
-  assert.match(appShell, /const showBack = computed\(\(\) => Boolean\(route\.meta\.backTo\)\)/)
+  assert.match(appShell, /Boolean\(route\.meta\.backTo \|\| returnTarget\.value\)/)
+  assert.match(appShell, /typeof source === 'string' && Object\.hasOwn\(returnTargets, source\)/)
+  assert.match(appShell, /if \(event\.defaultPrevented\) return/)
+  assert.match(appShell, /router\.push\(returnTarget\.value\)/)
   assert.match(appShell, /router\.push\(route\.meta\.backTo \|\| '\/today'\)/)
 })
 

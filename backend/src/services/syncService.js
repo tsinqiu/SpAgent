@@ -8,6 +8,7 @@ const { ApiError } = require('../errors');
 const statsCache = require('../cache/statsCache');
 const trainingExecution = require('./trainingExecutionService');
 const { addDays, localToday } = require('./trainingPlanInput');
+const garminJobs = require('./garminSyncJobs');
 
 const PROVIDERS = [
   { provider: 'garmin', name: 'Garmin Connect' }
@@ -121,7 +122,8 @@ function runProcess(command, args, options = {}) {
     const child = spawn(command, args, {
       cwd: options.cwd || PROJECT_ROOT,
       env: { ...process.env, ...(options.env || {}) },
-      windowsHide: true
+      windowsHide: true,
+      signal: options.signal
     });
     let stdout = '';
     let stderr = '';
@@ -132,10 +134,10 @@ function runProcess(command, args, options = {}) {
     }, options.timeoutMs || config.garmin.timeoutMs);
 
     child.stdout.on('data', (chunk) => {
-      stdout += chunk.toString();
+      stdout = (stdout + chunk.toString()).slice(-8192);
     });
     child.stderr.on('data', (chunk) => {
-      stderr += chunk.toString();
+      stderr = (stderr + chunk.toString()).slice(-8192);
     });
     child.on('error', (error) => {
       clearTimeout(timeout);
@@ -242,7 +244,7 @@ function splitSqlStatements(sql) {
   return statements;
 }
 
-async function executeSqlFile(filePath, { ownedActivities = false } = {}) {
+async function executeSqlFile(filePath, { ownedActivities = false, guard, recordImported } = {}) {
   const sql = await fs.readFile(filePath, 'utf8');
   const statements = splitSqlStatements(sql);
   const connection = await db.getPool().getConnection();
@@ -250,7 +252,8 @@ async function executeSqlFile(filePath, { ownedActivities = false } = {}) {
   let activityId = null;
   let skipDuplicate = false;
   try {
-    if (ownedActivities) await connection.beginTransaction();
+    if (ownedActivities || guard) await connection.beginTransaction();
+    if (guard) await guard(connection);
     for (const statement of statements) {
       if (ownedActivities && /^START TRANSACTION$/i.test(statement)) {
         activityId = null;
@@ -274,7 +277,8 @@ async function executeSqlFile(filePath, { ownedActivities = false } = {}) {
         skipDuplicate = true;
       }
     }
-    if (ownedActivities) await connection.commit();
+    if (recordImported && importedIds.length) await recordImported(connection, importedIds.length);
+    if (ownedActivities || guard) await connection.commit();
     return importedIds;
   } catch (error) {
     await connection.rollback();
@@ -322,27 +326,6 @@ async function addLog(jobId, user, provider, level, message, raw = null) {
     `,
     [jobId, user.id, provider, level, truncate(message), raw ? JSON.stringify(raw) : null]
   );
-}
-
-async function getJobById(jobId) {
-  const rows = await db.query(
-    `
-      SELECT
-        id,
-        provider,
-        job_type AS jobType,
-        status,
-        requested_at AS requestedAt,
-        started_at AS startedAt,
-        finished_at AS finishedAt,
-        activity_count AS activityCount,
-        error_message AS errorMessage
-      FROM SyncJobs
-      WHERE id = ?
-    `,
-    [jobId]
-  );
-  return toJob(rows[0]);
 }
 
 async function getExistingGarminIds(userId, startDate) {
@@ -426,7 +409,7 @@ async function getGarminAccount(user) {
   };
 }
 
-async function runGarminSync(jobId, user, payload) {
+async function runGarminSync(jobId, user, payload, { guard, recordImported, signal, token } = {}) {
   const account = await getGarminAccount(user);
   if (!account.exists) {
     throw new ApiError(400, 'garmin account is not connected', 'GARMIN_ACCOUNT_NOT_CONNECTED');
@@ -435,7 +418,7 @@ async function runGarminSync(jobId, user, payload) {
   const endDate = payload.endDate || localToday();
   const startDate = payload.startDate || await getGarminIncrementalStartDate(user) || addDays(endDate, -27);
 
-  const jobDir = path.join(config.garmin.syncWorkDir, `user-${user.id}`, `job-${jobId}`);
+  const jobDir = path.join(config.garmin.syncWorkDir, `user-${user.id}`, `job-${jobId}`, ...(token ? [token] : []));
   const knownIdsPath = path.join(jobDir, 'known_ids.json');
   const summaryPath = path.join(jobDir, 'download_summary.json');
   const importSqlPath = path.join(jobDir, 'import.sql');
@@ -479,6 +462,7 @@ async function runGarminSync(jobId, user, payload) {
     {
       cwd: PROJECT_ROOT,
       timeoutMs: config.garmin.timeoutMs,
+      signal,
       env: { GARMIN_NON_INTERACTIVE: '1' }
     }
   );
@@ -497,9 +481,10 @@ async function runGarminSync(jobId, user, payload) {
         '--out',
         healthSqlPath
       ],
-      { cwd: PROJECT_ROOT, timeoutMs: config.garmin.timeoutMs }
+      { cwd: PROJECT_ROOT, timeoutMs: config.garmin.timeoutMs, signal }
     );
-    await executeSqlFile(healthSqlPath);
+    await executeSqlFile(healthSqlPath, { guard });
+    statsCache.clear();
   }
 
   const downloadedIds = Array.isArray(summary.downloadedActivityIds) ? summary.downloadedActivityIds : [];
@@ -521,10 +506,10 @@ async function runGarminSync(jobId, user, payload) {
       '--owner-user-id', String(user.id),
       '--source', 'garmin_sync'
     ],
-    { cwd: PROJECT_ROOT, timeoutMs: config.garmin.timeoutMs }
+    { cwd: PROJECT_ROOT, timeoutMs: config.garmin.timeoutMs, signal }
   );
-  const importedIds = await executeSqlFile(importSqlPath, { ownedActivities: true });
-  statsCache.clear();
+  const importedIds = await executeSqlFile(importSqlPath, { ownedActivities: true, guard, recordImported });
+  if (importedIds.length) statsCache.clear();
   const matching = await trainingExecution.autoLinkImported(user.id, importedIds);
   if (matching.linked || matching.errors) {
     await addLog(jobId, user, 'garmin', matching.errors ? 'warning' : 'info',
@@ -553,8 +538,8 @@ async function runGarminSync(jobId, user, payload) {
           const fl = payload.feelsLikeC;
           if (tc !== null || hp !== null || fl !== null) {
             return db.query(
-              `UPDATE Activities SET weather_condition = ?, temperature_c = ?, humidity_percent = ?, feels_like_c = ?, weather_source = 'open_meteo', weather_updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-              [wc, tc, hp, fl, act.id]
+              `UPDATE Activities SET weather_condition = ?, temperature_c = ?, humidity_percent = ?, feels_like_c = ?, weather_source = 'open_meteo', weather_updated_at = CURRENT_TIMESTAMP WHERE id = ? AND owner_user_id = ?`,
+              [wc, tc, hp, fl, act.id, user.id]
             );
           }
         })
@@ -708,52 +693,13 @@ async function disconnectProvider(provider, user) {
   };
 }
 
-async function createJob(payload, user) {
+function createJob(payload, user) {
   assertProvider(payload.provider);
+  return garminJobs.enqueue(payload, user);
+}
 
-  const result = await db.query(
-    `
-      INSERT INTO SyncJobs (user_id, provider, job_type, status, requested_at)
-      VALUES (?, 'garmin', ?, 'queued', NOW(3))
-    `,
-    [user.id, payload.jobType || 'manual_sync']
-  );
-  const jobId = result.insertId;
-
-  try {
-    await db.query(`UPDATE SyncJobs SET status = 'running', started_at = NOW(3) WHERE id = ?`, [jobId]);
-    const syncResult = await runGarminSync(jobId, user, payload);
-    await db.query(
-      `
-        UPDATE SyncJobs
-        SET status = 'success', finished_at = NOW(3), activity_count = ?, raw_json = ?
-        WHERE id = ?
-      `,
-      [syncResult.importedCount, JSON.stringify(syncResult), jobId]
-    );
-    await db.query(
-      `
-        UPDATE SyncProviderConnections
-        SET status = 'connected', last_sync_at = NOW(3)
-        WHERE user_id = ? AND provider = 'garmin'
-      `,
-      [user.id]
-    );
-    await addLog(jobId, user, 'garmin', 'info', `Garmin sync completed; imported ${syncResult.importedCount} new activities`);
-  } catch (error) {
-    const message = error instanceof ApiError ? error.message : truncate(error.message || error);
-    await db.query(
-      `
-        UPDATE SyncJobs
-        SET status = 'failed', finished_at = NOW(3), error_message = ?
-        WHERE id = ?
-      `,
-      [message, jobId]
-    );
-    await addLog(jobId, user, 'garmin', 'error', message);
-  }
-
-  return getJobById(jobId);
+function startWorker() {
+  return garminJobs.startGarminWorker({ runSync: runGarminSync });
 }
 
 async function listJobs(filters, user) {
@@ -772,16 +718,7 @@ async function listJobs(filters, user) {
   const countRows = await db.query(`SELECT COUNT(*) AS total FROM SyncJobs WHERE ${where.join(' AND ')}`, params);
   const rows = await db.query(
     `
-      SELECT
-        id,
-        provider,
-        job_type AS jobType,
-        status,
-        requested_at AS requestedAt,
-        started_at AS startedAt,
-        finished_at AS finishedAt,
-        activity_count AS activityCount,
-        error_message AS errorMessage
+      SELECT ${garminJobs.jobColumns}
       FROM SyncJobs
       WHERE ${where.join(' AND ')}
       ORDER BY requested_at DESC, id DESC
@@ -850,6 +787,8 @@ module.exports = {
   authorizeProvider,
   disconnectProvider,
   createJob,
+  getJob: garminJobs.getJob,
+  startWorker,
   listJobs,
   listLogs,
   _private: {

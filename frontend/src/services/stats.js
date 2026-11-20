@@ -48,6 +48,10 @@ export async function getMetricTrend(params = { metric: 'avg_heart_rate_bpm', ra
   return envelope.data || []
 }
 
+export async function getMetricTrends(params = {}) {
+  return (await getEnvelope('/stats/metric-trends', { params })).data || {}
+}
+
 export async function getCalendarStats(params = {}) {
   const envelope = await getEnvelope('/stats/calendar', {
     params,

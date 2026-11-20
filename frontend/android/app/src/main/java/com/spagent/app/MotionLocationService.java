@@ -1,4 +1,4 @@
-package com.motioncare.app;
+package com.spagent.app;
 
 import android.Manifest;
 import android.app.Notification;
@@ -22,9 +22,9 @@ import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
 
 public class MotionLocationService extends Service {
-    public static final String ACTION_START = "com.motioncare.app.motionlocation.START";
-    public static final String ACTION_STOP = "com.motioncare.app.motionlocation.STOP";
-    private static final String CHANNEL_ID = "motioncare_workout_location";
+    public static final String ACTION_START = "com.spagent.app.motionlocation.START";
+    public static final String ACTION_STOP = "com.spagent.app.motionlocation.STOP";
+    private static final String CHANNEL_ID = "spagent_workout_location";
     private static final int NOTIFICATION_ID = 7310;
     private static final Set<MotionLocationListener> listeners = new CopyOnWriteArraySet<>();
     private static volatile boolean running = false;
@@ -155,7 +155,7 @@ public class MotionLocationService extends Service {
         createNotificationChannel();
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(getApplicationInfo().icon)
-            .setContentTitle("MotionCare 正在记录运动")
+            .setContentTitle("SpAgent 正在记录运动")
             .setContentText("正在持续采集 GPS 轨迹、距离和配速")
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)

@@ -1,4 +1,5 @@
 const db = require('../db');
+const { ApiError } = require('../errors');
 
 function paceLabel(avgPaceSecPerKm) {
   if (avgPaceSecPerKm == null || avgPaceSecPerKm === 0) return null;
@@ -33,6 +34,9 @@ async function create(userId, body) {
   const { name, brand, model, purchaseDate, photoPath, photoOriginalName, photoMimeType, photoSizeBytes,
     targetDistanceKm, initialDistanceKm, price } = body;
   if (!name || !name.trim()) throw Object.assign(new Error('name is required'), { status: 400 });
+  if (photoPath != null && (typeof photoPath !== 'string' || photoPath.startsWith('/uploads/shoe-images/'))) {
+    throw new ApiError(400, 'upload a shoe photo after creating the shoe', 'INVALID_UPLOAD');
+  }
   const result = await db.query(
     `INSERT INTO Shoes (user_id, name, brand, model, purchase_date, photo_path, photo_original_name, photo_mime_type, photo_size_bytes,
       target_distance_km, initial_distance_km, price)

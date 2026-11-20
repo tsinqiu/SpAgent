@@ -40,6 +40,7 @@ function makeAgent(overrides = {}) {
       assert.equal(owner, userId);
       return null;
     },
+    readPreferences: async () => ({ goalType: null, weekdays: [] }),
     aiConfig: { agentUseDeepseek: false },
     ...overrides
   });
@@ -54,6 +55,118 @@ test('a relative start date stays separate from weekly availability', () => {
   const selection = checkConstraints(intent, '2026-11-19');
   assert.equal(selection.startDate, '2026-11-23');
   assert.deepEqual(selection.days, [2, 4, 7]);
+});
+
+test('new drafts respect a session cap and preserve volume with limited recovery evidence', async () => {
+  const agent = makeAgent({
+    readContext: async (_owner, date) => {
+      const context = trainingContext(date, { hasHistory: true });
+      context.windows[0].running.durationS = 3000;
+      context.windows[0].recovery.sleepScore = { samples: 2, average: 45 };
+      return context;
+    }
+  });
+  const intent = '我想为首次 5 公里做准备，每周二、四有空，每次上限10分钟。';
+  const result = await agent(intent, userId);
+  assert.ok(readPlan(result.proposal.plan).sessions.every(item => item.durationS <= 600));
+  const continued = await agent('我想为首次 5 公里做准备，每周二、四有空。', userId);
+  assert.equal(new Set(readPlan(continued.proposal.plan).sessions.map(item => item.durationS)).size, 1);
+});
+
+test('coach fills missing inputs with saved preferences and records their source', async () => {
+  const agent = makeAgent({
+    readPreferences: async (owner) => {
+      assert.equal(owner, userId);
+      return { goalType: 'first_5k', weekdays: [1, 3, 5] };
+    },
+    aiConfig: { agentUseDeepseek: true, deepseekApiKey: 'synthetic' },
+    complete: async () => assert.fail('Saved preferences are resolved locally')
+  });
+  const turn = await agent('按我的训练偏好生成一份计划。', userId);
+  const plan = readPlan(turn.proposal.plan);
+  assert.equal(plan.goalType, 'first_5k');
+  assert.deepEqual(weekdays(plan.sessions.slice(0, 3)), [1, 3, 5]);
+  const basis = turn.cards.find(card => card.type === 'evidence');
+  assert.ok(basis.assumptions.includes('沿用已保存的常用训练日。'));
+  assert.ok(basis.assumptions.includes('沿用已保存的跑步目标「首次 5 公里」。'));
+});
+
+test('explicit inputs override saved preferences independently and cleared values are not reused', async () => {
+  let stored = { goalType: 'first_5k', weekdays: [1, 4] };
+  const agent = makeAgent({ readPreferences: async () => stored });
+  const goal = await agent('我想建立规律跑步习惯。', userId);
+  assert.equal(goal.proposal.plan.goalType, 'regular_running');
+  assert.deepEqual(weekdays(readPlan(goal.proposal.plan).sessions.slice(0, 2)), [1, 4]);
+  const days = await agent('帮我生成四周跑步计划，每周三、日有空。', userId);
+  assert.equal(days.proposal.plan.goalType, 'first_5k');
+  assert.deepEqual(weekdays(readPlan(days.proposal.plan).sessions.slice(0, 2)), [3, 7]);
+  assert.equal((await agent('我想首次 5 公里，每周跑 3 次。', userId)).proposal, undefined);
+
+  stored = { goalType: null, weekdays: [] };
+  const choice = await agent('帮我生成四周跑步计划。', userId);
+  assert.deepEqual(choice.cards[0].fields, ['goalType', 'weekdays']);
+  const cleared = await agent('按默认安排', userId, choice.clarification);
+  assert.equal(cleared.proposal.plan.goalType, 'regular_running');
+  assert.doesNotMatch(cleared.cards.find(card => card.type === 'evidence').assumptions.join(''), /沿用已保存/);
+});
+
+test('clarification carries the goal, start date and cap until the user supplies available days', async t => {
+  const startDate = addDays(localToday(), 8);
+  const read = t.mock.fn(async (_owner, today) => trainingContext(today));
+  const agent = makeAgent({ readContext: read });
+  const first = await agent(`想准备首次 5 公里，从 ${startDate} 开始，每次不超过 10 分钟。`, userId);
+  assert.equal(first.proposal, undefined);
+  assert.equal(read.mock.callCount(), 0);
+  assert.deepEqual(first.cards[0].fields, ['weekdays']);
+  assert.match(first.content, /每周哪/);
+  const second = await agent('周三和周日', userId, first.clarification);
+  const plan = readPlan(second.proposal.plan);
+  assert.equal(plan.goalType, 'first_5k');
+  assert.equal(plan.startDate, startDate);
+  assert.deepEqual(weekdays(plan.sessions.slice(0, 2)), [3, 7]);
+  assert.ok(plan.sessions.every(session => session.durationS <= 600));
+  assert.equal(second.clarification, undefined);
+  assert.equal(read.mock.callCount(), 1);
+});
+
+test('clarification asks at most two times and accepts explicit defaults or cancellation', async () => {
+  let now = Date.now();
+  const agent = makeAgent({ clock: () => now });
+  const first = await agent('帮我生成跑步训练计划', userId);
+  const second = await agent('周三和周日', userId, first.clarification);
+  assert.deepEqual(second.cards[0].fields, ['goalType']);
+  const planned = await agent('规律跑步', userId, second.clarification);
+  assert.deepEqual(weekdays(readPlan(planned.proposal.plan).sessions.slice(0, 2)), [3, 7]);
+  const third = await agent('我还没想好', userId, second.clarification);
+  assert.equal(third.clarification, undefined);
+  assert.equal(third.proposal, undefined);
+  const canceled = await agent('取消本次计划', userId, first.clarification);
+  assert.equal(canceled.clarification, undefined);
+  assert.equal(canceled.proposal, undefined);
+  assert.match(canceled.content, /已结束/);
+  const defaults = await agent('按默认安排', userId, second.clarification);
+  const defaultPlan = readPlan(defaults.proposal.plan);
+  assert.equal(defaultPlan.goalType, 'regular_running');
+  assert.deepEqual(weekdays(defaultPlan.sessions.slice(0, 2)), [3, 7]);
+  now = Date.parse(first.cards[0].expiresAt);
+  const expired = await agent('按默认安排', userId, first.clarification);
+  assert.equal(expired.proposal, undefined);
+  assert.match(expired.content, /没有待补充/);
+});
+
+test('clarification can replace invalid scheduling, while a new complete request starts fresh', async () => {
+  const agent = makeAgent();
+  const overbooked = await agent('我想首次 5 公里，每周二、四有空，每周跑三次。', userId);
+  assert.deepEqual(overbooked.cards[0].fields, ['weekdays']);
+  const fixed = await agent('每周跑两次', userId, overbooked.clarification);
+  assert.deepEqual(weekdays(readPlan(fixed.proposal.plan).sessions.slice(0, 2)), [2, 4]);
+
+  const old = await agent('规律跑步，每次最多 8 分钟。', userId);
+  const fresh = await agent('改成首次 5 公里，每周一、五有空。', userId, old.clarification);
+  const plan = readPlan(fresh.proposal.plan);
+  assert.equal(plan.goalType, 'first_5k');
+  assert.deepEqual(weekdays(plan.sessions.slice(0, 2)), [1, 5]);
+  assert.ok(plan.sessions.some(session => session.durationS > 8 * 60));
 });
 
 test('Chinese first 5 km request produces four weeks on the selected days with an explicit no-history basis', async () => {
@@ -139,7 +252,7 @@ test('a valid model intent can select the read tools and leaves plan generation 
       tools: ['get_active_plan', 'get_training_context']
     })
   });
-  const turn = await agent('想准备 5000 米初体验', userId);
+  const turn = await agent('想准备 5000 米初体验，每周三和周六有空。', userId);
   assert.deepEqual(turn.meta, { intentProvider: 'deepseek', fallback: false });
   assert.deepEqual(turn.cards.filter(card => card.type === 'tool_status').map(card => card.tool), [
     'get_active_plan', 'get_training_context', 'propose_training_plan'
@@ -148,21 +261,25 @@ test('a valid model intent can select the read tools and leaves plan generation 
   assert.equal(plan.goalType, 'first_5k');
   assert.equal(plan.sessions.length, 8);
   assert.deepEqual(weekdays(plan.sessions.slice(0, 2)), [3, 6]);
+  const clarification = await agent('想准备 5000 米初体验', userId);
+  assert.equal(clarification.proposal, undefined);
+  assert.deepEqual(clarification.cards[0].fields, ['weekdays']);
 });
 
 test('unsafe goals, unspecified adjustments and incompatible training days return clarification without a draft', async t => {
   const read = t.mock.fn();
   const complete = t.mock.fn();
   const agent = makeAgent({ readContext: read, readActivePlan: read, complete });
-  for (const text of [
-    '小腿疼，还想安排四周首次 5 公里训练',
-    '想调整正在执行的训练计划',
-    '准备首次 5 公里，我每周二有空，每周跑三次'
+  for (const [text, fields] of [
+    ['小腿疼，还想安排四周首次 5 公里训练', null],
+    ['想调整正在执行的训练计划', null],
+    ['准备首次 5 公里，我每周二有空，每周跑三次', ['weekdays']]
   ]) {
     const turn = await agent(text, userId);
     assert.ok(turn.content);
     assert.equal(turn.proposal, undefined);
-    assert.deepEqual(turn.cards, []);
+    if (fields) assert.deepEqual(turn.cards[0].fields, fields);
+    else assert.deepEqual(turn.cards, []);
   }
   assert.equal(read.mock.callCount(), 0);
   assert.equal(complete.mock.callCount(), 0);

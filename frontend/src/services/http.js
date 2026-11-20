@@ -1,7 +1,8 @@
 import axios from 'axios'
 import { Capacitor } from '@capacitor/core'
+import { clearSavedValue, readSavedValue } from './browserStorage'
 
-const TOKEN_STORAGE_KEY = 'motion-analysis-token'
+const TOKEN_STORAGE_KEY = 'spagent-token'
 const LOCAL_API_BASE_URL = import.meta.env.DEV ? 'http://localhost:8080/api' : '/api'
 let authFailureHandler = null
 
@@ -87,19 +88,16 @@ export function unwrapApiResponse(payload) {
 
 export function getAuthToken() {
   if (typeof localStorage === 'undefined') return ''
-  return localStorage.getItem(TOKEN_STORAGE_KEY) || ''
+  return readSavedValue(localStorage, TOKEN_STORAGE_KEY) || ''
 }
 
 export function saveAuthToken(token) {
   if (typeof localStorage === 'undefined') return
-  if (token) {
-    localStorage.setItem(TOKEN_STORAGE_KEY, token)
-  } else {
-    localStorage.removeItem(TOKEN_STORAGE_KEY)
-  }
+  if (token) localStorage.setItem(TOKEN_STORAGE_KEY, token)
+  else clearSavedValue(localStorage, TOKEN_STORAGE_KEY)
 }
 
 export function clearAuthToken() {
   if (typeof localStorage === 'undefined') return
-  localStorage.removeItem(TOKEN_STORAGE_KEY)
+  clearSavedValue(localStorage, TOKEN_STORAGE_KEY)
 }

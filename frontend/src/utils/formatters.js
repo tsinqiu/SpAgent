@@ -18,6 +18,14 @@ export function formatDuration(seconds) {
   return `${minutes}m ${rest}s`
 }
 
+export function formatDurationZh(seconds) {
+  if (seconds == null) return '—'
+  if (seconds < 60) return `${Math.round(seconds)} 秒`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes} 分钟`
+  return `${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分钟`
+}
+
 export function formatClockDuration(seconds) {
   if (seconds === null || seconds === undefined) return '--'
   const hours = Math.floor(seconds / 3600)

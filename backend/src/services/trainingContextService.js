@@ -20,7 +20,7 @@ async function getContext(userId, endDate = localToday()) {
     const [runs, { sleep, daily }] = await Promise.all([
       activityService.getSummaryStats({
         owner: 'mine', ownerUserId: userId, runningOnly: true, startDate, endDate
-      }, { includeCoverage: true }),
+      }, { includeCoverage: true, useTrainingDates: true }),
       recovery
     ]);
     return {

@@ -2,29 +2,36 @@
   <div class="page-stack explore-tool-page">
     <section class="tool-hero event-hero">
       <div>
-        <p class="overline">Race Hub</p>
-        <h2>赛事管理</h2>
-        <p>收藏目标赛事，填写日期后自动生成倒计时。</p>
+        <h2>跑步赛事</h2>
+        <p>查看上海未来 90 天已核对的赛事，收藏后查看倒计时。</p>
       </div>
       <span>{{ myEvents.length }} 场</span>
     </section>
 
     <nav class="tool-tabs" aria-label="赛事视图">
-      <button v-for="tab in tabs" :key="tab.key" type="button" :class="{ active: activeTab === tab.key }" @click="activeTab = tab.key">
+      <button v-for="tab in tabs" :key="tab.key" type="button" :class="{ active: activeTab === tab.key }" :aria-pressed="activeTab === tab.key" @click="activeTab = tab.key">
         {{ tab.label }}
       </button>
     </nav>
 
     <section v-if="activeTab === 'popular'" class="tool-card-list">
-      <article v-for="event in popularEvents" :key="event.id" class="tool-list-card">
+      <p class="soft-note">人工核对于 {{ checkedOn }}，收录部分公开赛事。报名前请核对最新公告。</p>
+      <article v-if="!upcomingEvents.length" class="tool-empty-card">
+        <strong>当前 90 天窗口暂无已核对赛事</strong>
+        <span>可在下方添加你关注的赛事。</span>
+      </article>
+      <article v-for="event in upcomingEvents" :key="event.id" class="tool-list-card">
         <div>
-          <span class="tool-icon" :style="{ '--tool-color': event.color }">
-            <component :is="event.icon" :size="24" aria-hidden="true" />
+          <span class="tool-icon" style="--tool-color: #16794f">
+            <Activity :size="24" aria-hidden="true" />
           </span>
           <div>
             <h3>{{ event.name }}</h3>
-            <p>{{ event.city }} · {{ event.type }} · {{ event.distance }}</p>
+            <p>{{ event.date }} · {{ event.city }} · {{ event.distance }}</p>
+            <small v-if="event.registrationEnd">{{ event.registrationEnd < today ? '预报名已截止' : `预报名截止 ${event.registrationEnd}` }}</small>
             <small>{{ event.note }}</small>
+            <a :href="event.source" target="_blank" rel="noopener noreferrer">赛事公告</a>
+            <a v-if="event.registrationSource" :href="event.registrationSource" target="_blank" rel="noopener noreferrer">报名公告</a>
           </div>
         </div>
         <button type="button" class="secondary-link" @click="prepareEvent(event)">加入我的</button>
@@ -34,7 +41,7 @@
     <section v-else-if="activeTab === 'mine'" class="tool-card-list">
       <article v-if="!myEvents.length" class="tool-empty-card">
         <strong>暂无我的赛事</strong>
-        <span>从热门赛事加入，或在下方自定义赛事。</span>
+        <span>从近期赛事加入，或在下方自定义赛事。</span>
       </article>
       <article v-for="event in myEvents" :key="event.id" class="tool-list-card">
         <div>
@@ -45,6 +52,7 @@
             <h3>{{ event.name }}</h3>
             <p>{{ event.city || event.location || '未设置地点' }} · {{ event.type || '赛事' }} · {{ event.distance || '未设置项目' }}</p>
             <small>{{ event.date || '未设置日期' }}{{ event.goal ? ` · 目标 ${event.goal}` : '' }}</small>
+            <a v-if="event.source" :href="event.source" target="_blank" rel="noopener noreferrer">赛事公告</a>
           </div>
         </div>
         <button type="button" class="danger-link" @click="removeEvent(event.id)">移除</button>
@@ -106,26 +114,20 @@
 <script setup>
 import { computed, reactive, ref } from 'vue'
 import { showToast } from 'vant'
-import { Activity, Bike, Medal, Waves } from '@lucide/vue'
+import { Activity, Medal } from '@lucide/vue'
+import { checkedOn, shanghaiRunningEvents } from '@/constants/runningEvents'
+import { authSession } from '@/stores/authStore'
 
-const STORAGE_KEY = 'motioncare-my-events'
+const storageKey = authSession.user?.id ? `spagent-events:${authSession.user.id}` : null
 
 const tabs = [
-  { key: 'popular', label: '热门赛事' },
+  { key: 'popular', label: '近期赛事' },
   { key: 'mine', label: '我的赛事' },
   { key: 'countdown', label: '倒计时' },
 ]
 
-const popularEvents = [
-  { id: 'beijing-marathon', name: '北京马拉松', city: '北京', type: '路跑', distance: '全马', note: '城市地标线路，适合作为年度目标赛事。', icon: Activity, color: '#16a34a' },
-  { id: 'shanghai-marathon', name: '上海马拉松', city: '上海', type: '路跑', distance: '全马', note: '大城市高速赛道，适合冲击个人最好成绩。', icon: Activity, color: '#16a34a' },
-  { id: 'xiamen-marathon', name: '厦门马拉松', city: '厦门', type: '路跑', distance: '全马', note: '沿海城市赛事，适合冬春季备赛。', icon: Activity, color: '#0ea5e9' },
-  { id: 'wuxi-marathon', name: '无锡马拉松', city: '无锡', type: '路跑', distance: '全马 / 半马', note: '春季热门赛事，可作为半马或全马目标。', icon: Activity, color: '#22c55e' },
-  { id: 'hangzhou-marathon', name: '杭州马拉松', city: '杭州', type: '路跑', distance: '全马 / 半马', note: '城市湖滨路线，适合作为秋季目标。', icon: Activity, color: '#14b8a6' },
-  { id: 'guangzhou-marathon', name: '广州马拉松', city: '广州', type: '路跑', distance: '全马 / 半马', note: '年底赛事，适合完整周期训练检验。', icon: Activity, color: '#f97316' },
-  { id: 'cycling-century', name: '城市百公里骑行', city: '自选城市', type: '骑行', distance: '100 km', note: '适合长距离耐力骑行目标。', icon: Bike, color: '#f59e0b' },
-  { id: 'open-water-1500', name: '1500m 游泳挑战', city: '泳池 / 公开水域', type: '游泳', distance: '1500 m', note: '适合作为游泳耐力阶段目标。', icon: Waves, color: '#0ea5e9' },
-]
+const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format()
+const upcomingEvents = shanghaiRunningEvents.filter(event => daysUntil(event.date) >= 0 && daysUntil(event.date) <= 90)
 
 const activeTab = ref('popular')
 const editingFromTemplate = ref(false)
@@ -146,22 +148,23 @@ function createEmptyDraft(source = {}) {
     distance: source.distance || '',
     goal: source.goal || '',
     note: source.note || '',
+    source: source.source || '',
     color: source.color || '#16a34a',
   }
 }
 
 function loadItems() {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY)
-    return raw ? JSON.parse(raw) : []
+    const raw = storageKey && window.localStorage.getItem(storageKey)
+    const items = raw && JSON.parse(raw)
+    return Array.isArray(items) ? items : []
   } catch {
-    window.localStorage.removeItem(STORAGE_KEY)
     return []
   }
 }
 
 function persist() {
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(myEvents.value))
+  if (storageKey) window.localStorage.setItem(storageKey, JSON.stringify(myEvents.value))
 }
 
 function resetDraft() {
@@ -201,16 +204,13 @@ function removeEvent(id) {
 }
 
 function daysUntil(date) {
-  const target = new Date(`${date}T00:00:00`)
-  if (Number.isNaN(target.getTime())) return '--'
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  return Math.ceil((target.getTime() - today.getTime()) / 86400000)
+  return (Date.parse(date) - Date.parse(today)) / 86400000
 }
 </script>
 
 <style scoped>
 .explore-tool-page { gap: 16px; }
+.tool-list-card a { display: inline-block; color: var(--green-strong); padding: 8px 8px 8px 0; }
 .tool-hero {
   display: flex;
   align-items: flex-end;

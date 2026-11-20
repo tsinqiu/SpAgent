@@ -105,7 +105,8 @@ function parseDashboardFilters(query, user) {
 
   return {
     ...parseActivityFilters(query, user, { withDates: false }),
-    ...(trainingLoadRange !== undefined ? { trainingLoadRange } : {})
+    ...(trainingLoadRange !== undefined ? { trainingLoadRange } : {}),
+    ...(query.view === undefined ? {} : { view: parseEnum(query.view, ['today'], 'view') })
   };
 }
 
@@ -117,16 +118,9 @@ function parseTrainingFilters(query, user) {
   };
 }
 
-async function sendCachedStats(req, res, loader) {
-  const cached = statsCache.get(req);
-  if (cached) {
-    sendData(res, cached, { cache: { hit: true } });
-    return;
-  }
-
-  const data = await loader();
-  statsCache.set(req, data);
-  sendData(res, data, { cache: { hit: false } });
+async function sendCachedStats(req, res, filters, loader) {
+  const { data, hit } = await statsCache.load(req, filters, () => loader(filters));
+  sendData(res, data, { cache: { hit } });
 }
 
 module.exports = {

@@ -1,6 +1,6 @@
 <template>
   <div class="app-viewport">
-    <div class="phone-frame">
+    <div class="phone-frame" :class="{ 'phone-frame--training': wideTrainingView }">
       <van-nav-bar
         class="app-navbar"
         :title="navTitle"
@@ -20,11 +20,7 @@
       </van-nav-bar>
 
       <main ref="scrollEl" class="page-frame">
-        <RouterView v-slot="{ Component }">
-          <Transition name="page" mode="out-in">
-            <component :is="Component" />
-          </Transition>
-        </RouterView>
+        <RouterView />
       </main>
 
       <van-tabbar
@@ -74,15 +70,20 @@ const navItems = primaryNavigation
 const returnTargets = {
   today: '/today',
   explore: '/explore',
+  coach: '/coach',
+  'weekly-report': '/explore/weekly-report',
 }
-const returnTarget = computed(() => returnTargets[route.query.from] || '')
+const returnTarget = computed(() => {
+  const source = route.query.from
+  return typeof source === 'string' && Object.hasOwn(returnTargets, source) ? returnTargets[source] : ''
+})
 const showBack = computed(() => Boolean(route.meta.backTo || returnTarget.value))
 const hideTabbar = computed(() => showBack.value)
-const navTitle = computed(() => (showBack.value ? pageTitleOverride.value || route.meta.title || '返回' : route.meta.navTitle || 'MotionCare'))
+const wideTrainingView = computed(() => ['today', 'coach', 'training-plans', 'weekly-report'].includes(route.name))
+const navTitle = computed(() => (showBack.value ? pageTitleOverride.value || route.meta.title || '返回' : route.meta.navTitle || 'SpAgent'))
 const showProfileShortcut = computed(() => !pageAction.value && !route.meta.authLayout && route.path !== '/me')
 
-// Highlight the tab that owns the current route, including nested pages
-// (e.g. /status/health lights up 状态, /me/sync lights up 我的).
+// Highlight the tab when the route shares its top-level path.
 const activeTab = computed(() => {
   const segment = route.path.split('/')[1] || ''
   return navItems.some((item) => item.icon === segment) ? segment : ''
@@ -94,7 +95,7 @@ function goTab(name) {
 }
 
 function goBack() {
-  const event = new CustomEvent('motioncare:nav-back', { cancelable: true })
+  const event = new CustomEvent('spagent:nav-back', { cancelable: true })
   window.dispatchEvent(event)
   if (event.defaultPrevented) return
 
@@ -118,7 +119,7 @@ function handlePageNavAction(event) {
 }
 
 function handlePageAction() {
-  window.dispatchEvent(new CustomEvent('motioncare:nav-action-click'))
+  window.dispatchEvent(new CustomEvent('spagent:nav-action-click'))
 }
 
 // The scroll container is the phone frame's body, not the window, so reset it
@@ -135,12 +136,12 @@ watch(
 )
 
 onMounted(() => {
-  window.addEventListener('motioncare:nav-title', handlePageTitle)
-  window.addEventListener('motioncare:nav-action', handlePageNavAction)
+  window.addEventListener('spagent:nav-title', handlePageTitle)
+  window.addEventListener('spagent:nav-action', handlePageNavAction)
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('motioncare:nav-title', handlePageTitle)
-  window.removeEventListener('motioncare:nav-action', handlePageNavAction)
+  window.removeEventListener('spagent:nav-title', handlePageTitle)
+  window.removeEventListener('spagent:nav-action', handlePageNavAction)
 })
 </script>

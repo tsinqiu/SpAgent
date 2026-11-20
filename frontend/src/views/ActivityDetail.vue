@@ -3,7 +3,7 @@
     <StateBlock
       v-if="loading"
       title="正在加载运动详情"
-      message="正在读取活动摘要、轨迹点、心率、速度和分段数据。"
+      message="正在读取活动摘要。"
     />
     <StateBlock
       v-else-if="error"
@@ -33,7 +33,10 @@
       </nav>
 
       <section v-if="activeTab === 'overview'" class="detail-tab-panel overview-tab">
-        <RoutePreview class="detail-overview-map" :points="trackPoints" />
+        <RoutePreview class="detail-overview-map" :points="mapPoints" />
+        <p v-if="trackLoading" class="soft-note" role="status">正在读取轨迹…</p>
+        <button v-else-if="trackError" class="secondary-link" type="button" @click="loadTrack(activity.id, activityVersion)">轨迹加载失败，重试</button>
+        <p v-else-if="mapPoints.length < trackPoints.length" class="soft-note">地图抽样显示 {{ mapPoints.length }} / {{ trackPoints.length }} 个点，统计使用完整记录。</p>
 
         <section class="activity-title-card">
           <span class="activity-type-icon">
@@ -73,7 +76,9 @@
       </section>
 
       <section v-else-if="activeTab === 'charts'" class="detail-tab-panel chart-tab">
-        <template v-if="chartBlocks.length">
+        <StateBlock v-if="trackLoading" title="正在读取采样" message="运动摘要已可查看。" />
+        <StateBlock v-else-if="trackError" title="采样加载失败" message="可重试获取运动轨迹和时序数据。" action-label="重试" @action="loadTrack(activity.id, activityVersion)" />
+        <template v-else-if="chartBlocks.length">
           <template v-for="block in chartBlocks" :key="block.key">
             <section v-if="block.type === 'zones'" class="chart-section zone-chart-section">
               <div class="chart-section-heading">
@@ -250,7 +255,7 @@
               <input type="file" accept="image/*" @change="uploadPhoto" :disabled="isUploadingPhoto" />
             </label>
             <span v-if="isUploadingPhoto" class="upload-status">上传中...</span>
-            <img v-if="activity.photo_path" :src="photoUrl(activity.photo_path)" class="activity-photo" alt="活动照片" />
+            <ProtectedPhoto v-if="activity.photo_path" kind="activity" :id="activity.id" :path="activity.photo_path" class="activity-photo" alt="活动照片" />
           </div>
         </section>
       </section>
@@ -304,7 +309,7 @@
             <button type="button" @click="shareActivityToCommunity">分享</button>
           </header>
           <article class="activity-poster">
-            <RoutePreview v-if="trackPoints.length" class="poster-map-preview" :points="trackPoints" />
+            <RoutePreview v-if="trackPoints.length" class="poster-map-preview" :points="mapPoints" />
             <div v-if="trackPoints.length" class="poster-map-fade" aria-hidden="true"></div>
             <div class="poster-title">
               <h3>{{ activityTitle }}</h3>
@@ -322,8 +327,8 @@
               <span><small>配速</small><b>{{ formatPacePretty(activity.avg_speed_mps) }}</b></span>
             </div>
             <footer>
-              <span>{{ authSession.user?.username || 'MotionCare' }}</span>
-              <b>MotionCare</b>
+              <span>{{ authSession.user?.username || 'SpAgent' }}</span>
+              <b>SpAgent</b>
             </footer>
           </article>
         </div>
@@ -341,21 +346,21 @@ import { Activity, Image, Pencil, Share2, Sparkles, Trash2 } from '@lucide/vue'
 import ChartPanel from '@/components/ChartPanel.vue'
 import ManualActivityModal from '@/components/ManualActivityModal.vue'
 import RoutePreview from '@/components/RoutePreview.vue'
+import ProtectedPhoto from '@/components/ProtectedPhoto.vue'
 import StateBlock from '@/components/StateBlock.vue'
 import { createCommunityPost } from '@/services/community'
 import {
   deleteManualActivity,
   getActivity,
   getActivityZones,
-  getHeartRateSeries,
   getLaps,
-  getSpeedSeries,
   getTrackPoints,
   updateActivityMeta,
   updateManualActivity,
   uploadActivityPhoto,
 } from '@/services/activities'
-import { apiClient, resolveMediaUrl } from '@/services/http'
+import { apiClient } from '@/services/http'
+import { readSavedValue } from '@/services/browserStorage'
 import { authSession } from '@/stores/authStore'
 import ActivityPlanReview from '@/components/ActivityPlanReview.vue'
 import { formatCalories, formatDistance, formatPaceSeconds } from '@/utils/formatters'
@@ -368,10 +373,21 @@ const loading = ref(false)
 const modalOpen = ref(false)
 const isDeleting = ref(false)
 const trackPoints = ref([])
-const heartRateSeries = ref([])
-const speedSeries = ref([])
+const maxMapPoints = 1200
+const mapPoints = computed(() => {
+  const points = trackPoints.value
+  if (points.length <= maxMapPoints) return points
+  const step = (points.length - 1) / (maxMapPoints - 1)
+  return Array.from({ length: maxMapPoints }, (_, index) => points[Math.round(index * step)])
+})
+const heartRateSeries = computed(() => trackPoints.value.filter(point => point.sample_time_utc && point.heart_rate_bpm != null))
+const speedSeries = computed(() => trackPoints.value.filter(point => point.sample_time_utc && point.speed_mps != null))
+const trackLoading = ref(false)
+const trackError = ref(false)
 const laps = ref([])
 const zones = ref([])
+const loadedPanels = new Set()
+let activityVersion = 0
 const shoes = ref([])
 const shoeError = ref('')
 const selectedShoeId = ref(null)
@@ -383,7 +399,7 @@ const activeTab = ref('overview')
 const splitMode = ref('lap')
 const showPoster = ref(false)
 const selfReviewSaved = ref(false)
-const SELF_REVIEW_STORAGE_KEY = 'motioncare-activity-self-review'
+const SELF_REVIEW_STORAGE_KEY = 'spagent-activity-self-review'
 const selfReviewDefaults = {
   title: '',
   restingHeartRate: '',
@@ -521,7 +537,7 @@ const overviewMetricItems = computed(() => overviewMetrics.value.map((metric) =>
   ...splitMetricValue(metric.value),
 })))
 const posterPolyline = computed(() => {
-  const points = trackPoints.value
+  const points = mapPoints.value
     .map((point) => ({
       lat: Number(point.latitude ?? point.lat),
       lng: Number(point.longitude ?? point.lng),
@@ -554,7 +570,7 @@ const paceOption = computed(() => {
   const paceValues = speedSeries.value
     .map((point) => paceSecondsFromSpeed(point.speed_mps))
     .filter(Number.isFinite)
-  const slowestPace = paceValues.length ? Math.max(...paceValues) : null
+  const slowestPace = paceValues.length ? paceValues.reduce((max, value) => Math.max(max, value)) : null
 
   return createLineOption('配速', '/km', '#2396dc', speedSeries.value, 'speed_mps', {
     areaColor: 'rgba(35, 150, 220, 0.2)',
@@ -727,7 +743,8 @@ const splitRows = computed(() => {
 
 function selectTab(key) {
   activeTab.value = key
-  document.querySelector('.page-frame')?.scrollTo({ top: 0, behavior: 'smooth' })
+  document.querySelector('.page-frame')?.scrollTo({ top: 0 })
+  if (activity.value) void loadPanel(key, activity.value.id, activityVersion)
 }
 
 function splitMetricValue(value) {
@@ -914,8 +931,12 @@ function niceStep(value) {
 function niceAxisMin(values) {
   if (!values.length) return undefined
 
-  const min = Math.min(...values)
-  const max = Math.max(...values)
+  let min = Infinity
+  let max = -Infinity
+  for (const value of values) {
+    min = Math.min(min, value)
+    max = Math.max(max, value)
+  }
   if (min >= 0) return 0
 
   const span = Math.max(max - min, Math.abs(min), 1)
@@ -961,6 +982,7 @@ function createLineOption(name, unit, color, source, field, options = {}) {
   }
 
   return {
+    animation: orderedSource.length < 3000,
     color: [color],
     tooltip: {
       trigger: 'axis',
@@ -986,6 +1008,7 @@ function createLineOption(name, unit, color, source, field, options = {}) {
         name,
         type: 'line',
         smooth: true,
+        sampling: 'lttb',
         symbol: 'none',
         data: values,
         lineStyle: { width: 2 },
@@ -1114,26 +1137,28 @@ function createDistanceGroup(groupLaps, index, distanceM, targetDistanceM) {
 }
 
 async function loadActivity(id) {
+  const version = ++activityVersion
   loading.value = true
   error.value = ''
-  activeTab.value = 'overview'
+  activeTab.value = route.query.tab === 'analysis' ? 'analysis' : 'overview'
   splitMode.value = 'lap'
   showPoster.value = false
+  trackPoints.value = []
+  trackLoading.value = false
+  trackError.value = false
+  laps.value = []
+  zones.value = []
+  shoes.value = []
+  loadedPanels.clear()
   setNavTitle('运动详情')
 
   try {
     const nextActivity = await getActivity(id)
+    if (version !== activityVersion) return
     activity.value = nextActivity || null
     setNavTitle(nextActivity?.activity_name || nextActivity?.activity_type || '运动详情')
 
-    if (!nextActivity) {
-      trackPoints.value = []
-      heartRateSeries.value = []
-      speedSeries.value = []
-      laps.value = []
-      zones.value = []
-      return
-    }
+    if (!nextActivity) return
 
     editForm.value.activityName = nextActivity.activity_name || ''
     editForm.value.effort = nextActivity.perceived_effort || null
@@ -1141,32 +1166,51 @@ async function loadActivity(id) {
 
     selectedShoeId.value = nextActivity.shoe_id || nextActivity.shoeId || null
     shoeError.value = ''
-    try {
-      const { data } = await apiClient.get('/shoes')
-      shoes.value = data?.data || data || []
-    } catch (err) {
-      shoes.value = []
-      shoeError.value = err instanceof Error ? err.message : '跑鞋列表暂时无法加载'
-    }
-
-    const [points, heartRate, speed, lapRows, zoneRows] = await Promise.all([
-      getTrackPoints(id),
-      getHeartRateSeries(id),
-      getSpeedSeries(id),
-      getLaps(id),
-      getActivityZones(id).catch(() => []),
-    ])
-
-    trackPoints.value = points
-    heartRateSeries.value = heartRate
-    speedSeries.value = speed
-    laps.value = lapRows
-    zones.value = zoneRows
+    void loadTrack(id, version)
   } catch (err) {
-    error.value = err instanceof Error ? err.message : '详情加载失败'
+    if (version === activityVersion) error.value = err instanceof Error ? err.message : '详情加载失败'
   } finally {
-    loading.value = false
+    if (version === activityVersion) loading.value = false
   }
+}
+
+async function loadTrack(id, version) {
+  trackLoading.value = true
+  trackError.value = false
+  try {
+    const points = await getTrackPoints(id)
+    if (version === activityVersion) trackPoints.value = points
+  } catch {
+    if (version === activityVersion) trackError.value = true
+  } finally {
+    if (version === activityVersion) trackLoading.value = false
+  }
+}
+
+async function loadPanel(key, id, version) {
+  if (loadedPanels.has(key)) return
+  if (key !== 'charts' && key !== 'details') return
+  loadedPanels.add(key)
+  if (key === 'charts') {
+    try {
+      const rows = await getActivityZones(id)
+      if (version === activityVersion) zones.value = rows
+    } catch {
+      if (version === activityVersion) loadedPanels.delete(key)
+    }
+    return
+  }
+  const [lapResult, shoeResult] = await Promise.allSettled([
+    getLaps(id),
+    isRunningActivity.value ? apiClient.get('/shoes') : Promise.resolve({ data: [] }),
+  ])
+  if (version !== activityVersion) return
+  if (lapResult.status === 'fulfilled') laps.value = lapResult.value
+  if (shoeResult.status === 'fulfilled') {
+    const { data } = shoeResult.value
+    shoes.value = data?.data || data || []
+  } else shoeError.value = '跑鞋列表暂时无法加载'
+  if (lapResult.status === 'rejected' || shoeResult.status === 'rejected') loadedPanels.delete(key)
 }
 
 function getSelfReviewKey(id = activity.value?.id) {
@@ -1180,7 +1224,7 @@ function loadSelfReview(nextActivity) {
   const storedKey = getSelfReviewKey(nextActivity?.id)
   if (storedKey) {
     try {
-      const stored = window.localStorage.getItem(storedKey)
+      const stored = readSavedValue(window.localStorage, storedKey)
       if (stored) {
         Object.assign(selfReview, selfReviewDefaults, JSON.parse(stored))
         selfReviewSaved.value = true
@@ -1255,10 +1299,6 @@ function buildCommunityShareText() {
   return '分享了一次运动'
 }
 
-function photoUrl(path) {
-  return resolveMediaUrl(path)
-}
-
 async function uploadPhoto(e) {
   const file = e.target.files?.[0]
   if (!file) return
@@ -1309,7 +1349,7 @@ async function bindShoe() {
 }
 
 function setNavTitle(title) {
-  window.dispatchEvent(new CustomEvent('motioncare:nav-title', { detail: { title } }))
+  window.dispatchEvent(new CustomEvent('spagent:nav-title', { detail: { title } }))
 }
 
 watch(() => route.params.id, loadActivity, { immediate: true })
@@ -1318,6 +1358,7 @@ watch(isRunningActivity, (nextIsRunning) => {
 })
 
 onBeforeUnmount(() => {
+  activityVersion += 1
   setNavTitle('')
 })
 </script>
@@ -1429,6 +1470,7 @@ onBeforeUnmount(() => {
   color: #111827;
   font-size: 25px;
   line-height: 1.15;
+  overflow-wrap: anywhere;
 }
 
 .activity-title-card p {

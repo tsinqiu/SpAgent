@@ -59,7 +59,7 @@ def load_rows(env_path: Path) -> list[dict[str, float]]:
     connection = mysql.connector.connect(
         host=env.get("DB_HOST", "127.0.0.1"),
         port=int(env.get("DB_PORT", "3306")),
-        database=env.get("DB_NAME", "MotionAnalysis"),
+        database=env.get("DB_NAME", "SpAgent"),
         user=env.get("DB_USER", "root"),
         password=env.get("DB_PASSWORD", ""),
     )
@@ -214,7 +214,7 @@ def main() -> None:
             "generatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
             "modelVersion": MODEL_VERSION,
             "dataSources": {
-                "primary": "local MotionAnalysis MySQL running activities with activity_training_load",
+                "primary": "local SpAgent MySQL running activities with activity_training_load",
                 "externalReference": None,
             },
             "labelPolicy": "activity_training_load split into low/medium/high by local tertiles",

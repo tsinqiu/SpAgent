@@ -1,29 +1,16 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-let insights = {}
-let product = {}
+import * as product from '../src/constants/product.js'
+import * as insights from '../src/utils/productInsights.js'
 
-try {
-  insights = await import('../src/utils/productInsights.js')
-} catch {
-  // The first RED run intentionally reaches the export assertions below.
-}
-
-try {
-  product = await import('../src/constants/product.js')
-} catch {
-  // The first RED run intentionally reaches the export assertions below.
-}
-
-test('product navigation exposes realtime workout recording as a primary entry', () => {
-  assert.deepEqual(product.primaryNavigation?.map(({ label, to }) => ({ label, to })), [
+test('product navigation keeps its five primary destinations, including recording', () => {
+  assert.deepEqual(product.primaryNavigation.map(({ label, to }) => ({ label, to })), [
     { label: '今日', to: '/today' },
     { label: '运动', to: '/activities' },
     { label: '记录', to: '/record' },
-    { label: '状态', to: '/status' },
-    { label: '教练', to: '/coach' },
-    { label: '我的', to: '/me' },
+    { label: '探索', to: '/explore' },
+    { label: '运动圈', to: '/community' },
   ])
 })
 

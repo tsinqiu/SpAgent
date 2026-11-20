@@ -36,7 +36,7 @@ test('fresh schema includes security tables and carries no reset or seed stateme
 });
 
 test('upload security rejects spoofed image content and removes the file', async () => {
-  const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'motioncare-upload-'));
+  const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'spagent-upload-'));
   const filePath = path.join(directory, 'spoof.png');
   await fs.promises.writeFile(filePath, 'this is not an image');
 
@@ -59,7 +59,7 @@ test('upload security rejects spoofed image content and removes the file', async
 });
 
 test('upload security uses the detected image MIME and a safe extension', async () => {
-  const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'motioncare-upload-'));
+  const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'spagent-upload-'));
   const originalPath = path.join(directory, 'photo.html');
   const png = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',

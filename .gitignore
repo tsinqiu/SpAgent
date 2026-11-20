@@ -76,7 +76,7 @@ id_ed25519
 *.tcx
 *.gpx
 
-# MotionCare local data and generated artifacts
+# SpAgent local data and generated artifacts
 database/data/
 database/.garmin_tokens/
 database/shared/

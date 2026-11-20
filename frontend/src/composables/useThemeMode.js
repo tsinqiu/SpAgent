@@ -1,6 +1,7 @@
 import { computed, onMounted, ref } from 'vue'
+import { readSavedValue } from '@/services/browserStorage'
 
-const THEME_STORAGE_KEY = 'motion-analysis-theme'
+const THEME_STORAGE_KEY = 'spagent-theme'
 const theme = ref('day')
 
 function normalizeTheme(value) {
@@ -19,7 +20,7 @@ export function applyTheme(nextTheme) {
 
 export function initTheme() {
   const stored = typeof localStorage !== 'undefined'
-    ? localStorage.getItem(THEME_STORAGE_KEY)
+    ? readSavedValue(localStorage, THEME_STORAGE_KEY)
     : 'day'
   applyTheme(stored || 'day')
 }

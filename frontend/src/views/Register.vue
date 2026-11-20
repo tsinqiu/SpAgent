@@ -3,15 +3,15 @@
     <section class="auth-card">
       <div class="auth-topline auth-topline--center">
         <div class="auth-brand auth-brand--plain">
-          <img class="auth-brand__icon" src="/icons/motioncare-icon.svg" alt="" />
+          <img class="auth-brand__icon" src="/icons/spagent-icon.svg" alt="" />
           <span>
-            <strong>MotionCare</strong>
+            <strong>SpAgent</strong>
           </span>
         </div>
       </div>
 
       <div class="auth-heading">
-        <h1>注册 MotionCare</h1>
+        <h1>注册 SpAgent</h1>
       </div>
 
       <form class="auth-form" @submit.prevent="submit">
@@ -27,7 +27,7 @@
           <span>邮箱</span>
           <div class="input-with-icon">
             <Mail :size="18" />
-            <input v-model.trim="form.email" type="email" autocomplete="email" placeholder="name@motioncare.com" required />
+            <input v-model.trim="form.email" type="email" autocomplete="email" placeholder="name@example.com" required />
           </div>
         </label>
 
@@ -57,7 +57,7 @@
           </div>
         </label>
 
-        <p v-if="localError || authSession.error" class="form-error">{{ localError || authSession.error }}</p>
+        <p v-if="localError || authSession.error" class="form-error" role="alert">{{ localError || authSession.error }}</p>
 
         <button class="auth-submit" type="submit" :disabled="authSession.loading">
           <UserRound :size="18" />

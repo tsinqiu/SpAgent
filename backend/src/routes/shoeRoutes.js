@@ -8,6 +8,7 @@ const { ApiError } = require('../errors');
 const { asyncHandler, parsePositiveId } = require('../http');
 const { authenticate } = require('../middleware/authMiddleware');
 const { removeUploadedFile, validateUploadedFile } = require('../services/uploadSecurity');
+const { preventPhotoCaching, sendPrivatePhoto } = require('../services/privatePhoto');
 
 fs.mkdirSync(config.uploads.shoeImagesDir, { recursive: true });
 
@@ -67,6 +68,11 @@ function createShoeRouter(shoeService, authService) {
   router.get('/shoes/:id/activities', authenticate(authService), asyncHandler(async (req, res) => {
     const activities = await shoeService.getActivities(req.user.id, parsePositiveId(req.params.id));
     res.json(activities);
+  }));
+
+  router.get('/shoes/:id/photo', preventPhotoCaching, authenticate(authService), asyncHandler(async (req, res) => {
+    const shoe = await shoeService.getById(parsePositiveId(req.params.id), req.user.id);
+    await sendPrivatePhoto(res, shoe?.photoPath, 'shoe-images', config.uploads.shoeImagesDir);
   }));
 
   router.post('/shoes/:id/photo', authenticate(authService), uploadShoeImage.single('photo'), asyncHandler(async (req, res) => {

@@ -3,7 +3,7 @@
     android:height="108dp"
     android:viewportHeight="108"
     android:viewportWidth="108">
-    <!-- MotionCare simple route runner launcher foreground -->
+    <!-- SpAgent simple route runner launcher foreground -->
     <path
         android:fillColor="#00000000"
         android:pathData="M20,73C35,56 53,50 72,53C84,55 93,62 99,70"

@@ -28,6 +28,8 @@ import Sync from '@/views/Sync.vue'
 import Today from '@/views/Today.vue'
 import TrainingLoad from '@/views/TrainingLoad.vue'
 import TrainingPlans from '@/views/TrainingPlans.vue'
+import TrainingPreferences from '@/views/TrainingPreferences.vue'
+import WeeklyReport from '@/views/WeeklyReport.vue'
 import {
   authSession,
   hasAuthToken,
@@ -152,13 +154,19 @@ const routes = [
     path: '/explore/events',
     name: 'explore-events',
     component: ExploreEvents,
-    meta: { title: '热门赛事', requiresAuth: true, backTo: '/explore' },
+    meta: { title: '跑步赛事', requiresAuth: true, backTo: '/explore' },
   },
   {
     path: '/explore/courses',
     name: 'explore-courses',
     component: ExploreCourses,
     meta: { title: '常用课程', requiresAuth: true, backTo: '/explore' },
+  },
+  {
+    path: '/explore/weekly-report',
+    name: 'weekly-report',
+    component: WeeklyReport,
+    meta: { title: '训练周报', requiresAuth: true, backTo: '/explore' },
   },
   {
     path: '/explore/routes',
@@ -201,6 +209,12 @@ const routes = [
     name: 'me-admin',
     component: Admin,
     meta: { title: '用户管理', requiresAuth: true, requiresAdmin: true, backTo: '/me' },
+  },
+  {
+    path: '/me/training-preferences',
+    name: 'training-preferences',
+    component: TrainingPreferences,
+    meta: { title: '训练偏好', requiresAuth: true, backTo: '/me' },
   },
   { path: '/start', redirect: '/record' },
   { path: '/health', redirect: '/status/health' },
@@ -282,7 +296,7 @@ router.beforeEach(async (to) => {
 })
 
 router.afterEach((to) => {
-  document.title = `${to.meta.title || 'MotionCare'} - MotionCare`
+  document.title = `${to.meta.title || 'SpAgent'} - SpAgent`
 })
 
 export default router

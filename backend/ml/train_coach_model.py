@@ -60,7 +60,7 @@ def connect(env_path: Path):
     return mysql.connector.connect(
         host=env.get("DB_HOST", "127.0.0.1"),
         port=int(env.get("DB_PORT", "3306")),
-        database=env.get("DB_NAME", "MotionAnalysis"),
+        database=env.get("DB_NAME", "SpAgent"),
         user=env.get("DB_USER", "root"),
         password=env.get("DB_PASSWORD", ""),
     )
@@ -748,7 +748,7 @@ def main() -> None:
             "generatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
         "modelVersion": MODEL_VERSION,
         "dataSources": {
-            "primary": "local MotionAnalysis MySQL Garmin-derived activities, health, sleep, training status, and feedback",
+            "primary": "local SpAgent MySQL Garmin-derived activities, health, sleep, training status, and feedback",
             "externalReference": fitrec_reference,
         },
         "labelGovernance": {

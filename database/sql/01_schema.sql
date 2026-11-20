@@ -1,5 +1,5 @@
 -- SpAgent Phase 0, fresh database schema only.
--- MotionCare 673887bedb63460bbf966a703558ee1d5ac55e77
+-- Upstream snapshot: https://github.com/tsinqiu/MotionCare/tree/673887bedb63460bbf966a703558ee1d5ac55e77
 -- Derived from migrations 01, 05, 06, 07, 14, 15, 16, 17, 18 and 19.
 -- Use npm run db:init with a new, empty database.
 

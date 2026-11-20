@@ -108,9 +108,16 @@ function createSyncRouter({ syncService = defaultSyncService, authService = defa
         jobType: parseEnum(req.body.jobType, JOB_TYPES, 'jobType', 'manual_sync')
       };
 
-      sendCreated(res, await syncService.createJob(payload, req.user));
+      const job = await syncService.createJob(payload, req.user);
+      res.status(202).location(`/api/sync/jobs/${job.id}`);
+      sendData(res, job);
     })
   );
+
+  router.get('/sync/jobs/:jobId', requireAuth, asyncHandler(async (req, res) => {
+    const jobId = parsePositiveId(req.params.jobId, 'jobId');
+    sendData(res, await syncService.getJob(jobId, req.user));
+  }));
 
   router.get(
     '/sync/jobs',

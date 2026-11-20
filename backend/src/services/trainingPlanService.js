@@ -1,7 +1,7 @@
 const db = require('../db');
 const { ApiError } = require('../errors');
 const { parseDate } = require('../http');
-const { addDays, localToday, readPlan, weekdayLabels } = require('./trainingPlanInput');
+const { addDays, localToday, mondayOf, readPlan, weekdayLabels } = require('./trainingPlanInput');
 const { executionView } = require('./trainingExecutionService');
 
 const planColumns = `p.id, p.name, p.sport AS type, p.goal_type AS goalType,
@@ -92,6 +92,31 @@ async function detail(connection, userId, planId) {
 
 function get(userId, planId) {
   return db.transaction(connection => detail(connection, userId, planId));
+}
+
+function listWeeklySessions(userId, startDate, endDate) {
+  return db.query(`
+    SELECT p.id AS planId, p.name AS planName, p.status AS planStatus,
+      s.id, s.scheduled_date AS date, s.title, s.status, e.activity_id AS activityId
+    FROM TrainingPlans p JOIN TrainingSessions s ON s.plan_id = p.id
+    LEFT JOIN TrainingSessionActivities e ON e.session_id = s.id
+    WHERE p.user_id = ? AND s.scheduled_date BETWEEN ? AND ?
+      AND (p.status = 'active' OR (p.status = 'archived' AND s.status <> 'pending'))
+    ORDER BY s.scheduled_date, s.id`, [userId, startDate, endDate]);
+}
+
+async function getToday(userId, date = localToday()) {
+  const [row] = await db.query(`
+    SELECT p.id AS planId, p.name AS planName, p.start_date AS startDate,
+      ${sessionColumns}, e.activity_id AS activityId
+    FROM TrainingPlans p
+    LEFT JOIN TrainingSessions s ON s.plan_id = p.id AND s.scheduled_date = ?
+    LEFT JOIN TrainingSessionActivities e ON e.session_id = s.id
+    WHERE p.user_id = ? AND p.status = 'active'
+    LIMIT 1`, [date, userId]);
+  if (!row) return { date, plan: null, session: null };
+  const { planId, planName, startDate, ...session } = row;
+  return { date, plan: { id: planId, name: planName, startDate }, session: session.id == null ? null : session };
 }
 
 function planValues(plan) {
@@ -217,10 +242,13 @@ function setSessionStatus(userId, planId, sessionId, version, status) {
   return change(userId, planId, version, async (connection, plan) => {
     if (plan.status !== 'active') throw conflict('Activate the plan before recording progress');
     const [[session]] = await connection.execute(`
-      SELECT s.status, e.session_id AS linked
+      SELECT s.status, s.scheduled_date AS date, e.session_id AS linked
       FROM TrainingSessions s LEFT JOIN TrainingSessionActivities e ON e.session_id = s.id
       WHERE s.id = ? AND s.plan_id = ?`, [sessionId, planId]);
     if (!session) throw missing();
+    if (status === 'completed' && session.status !== 'completed' && session.date > localToday()) {
+      throw conflict('A future training session cannot be marked completed', 'TRAINING_SESSION_NOT_STARTED');
+    }
     if (session.linked && status !== 'completed') {
       throw conflict('A linked session stays completed', 'SESSION_ALREADY_LINKED');
     }
@@ -264,6 +292,15 @@ function weekOffset(start, date) {
   return Math.floor((Date.parse(`${date}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 604800000);
 }
 
+async function hasAppliedWeeklyRevision(userId, planId, weekStart, query = db.query) {
+  const [row] = await query(`
+    SELECT id FROM AgentActions
+    WHERE user_id = ? AND status = 'applied' AND action_type = 'revise_plan' AND result_plan_id = ?
+      AND JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.revision.weeklyReviewWeek')) = ?
+    LIMIT 1`, [userId, planId, weekStart]);
+  return Boolean(row);
+}
+
 async function reviseInTransaction(connection, userId, revision, actionId) {
   const plan = await findPlan(connection, userId, revision.planId, true);
   if (plan.version !== revision.version || plan.status !== 'active' || plan.type !== 'running') {
@@ -276,6 +313,17 @@ async function reviseInTransaction(connection, userId, revision, actionId) {
   if (!session || session.status !== 'pending' || session.execution || session.date < today ||
       typeof reason !== 'string' || !reason.length || reason.length > 500 || !after ||
       !['move', 'reduce'].includes(revision.kind)) throw conflict('The training session is no longer eligible');
+
+  if (revision.weeklyReviewWeek !== undefined) {
+    const weekStart = mondayOf(today);
+    const nextWeekStart = addDays(weekStart, 7);
+    const query = async (sql, params) => (await connection.execute(sql, params))[0];
+    if (revision.kind !== 'reduce' || revision.weeklyReviewWeek !== weekStart ||
+        session.date < nextWeekStart || session.date > addDays(nextWeekStart, 6) ||
+        await hasAppliedWeeklyRevision(userId, plan.id, weekStart, query)) {
+      throw conflict('The weekly recommendation is no longer eligible');
+    }
+  }
 
   let date = session.date;
   let { durationS, distanceM } = session;
@@ -303,6 +351,7 @@ async function reviseInTransaction(connection, userId, revision, actionId) {
 }
 
 module.exports = {
+  listWeeklySessions, getToday,
   list, get, create, createInTransaction, getActive, update, setStatus, setSessionStatus, remove,
-  revisions, reviseInTransaction, weekOffset
+  revisions, reviseInTransaction, weekOffset, hasAppliedWeeklyRevision
 };

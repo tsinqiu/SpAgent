@@ -1,79 +1,47 @@
 import assert from 'node:assert/strict'
-import { access, readFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 
-async function source(path) {
-  return readFile(new URL(`../${path}`, import.meta.url), 'utf8')
+import { primaryNavigation } from '../src/constants/product.js'
+
+function source(path) {
+  return readFile(new URL('../src/' + path, import.meta.url), 'utf8')
 }
 
-const activeViewNames = [
-  'Today',
-  'Activities',
-  'ActivityDetail',
-  'Status',
-  'HealthDetail',
-  'TrainingLoad',
-  'Statistics',
-  'Calendar',
-  'Records',
-  'Coach',
-  'Me',
-  'RecordActivity',
-  'Security',
-  'Sync',
-  'Shoes',
-  'Settings',
-  'Admin',
-]
-
-const [router, shell, productConstants, recordActivity, ...activeViewSources] = await Promise.all([
-  source('src/router/index.js'),
-  source('src/components/AppShell.vue'),
-  source('src/constants/product.js'),
-  source('src/views/RecordActivity.vue'),
-  ...activeViewNames.map((name) => source(`src/views/${name}.vue`)),
+const [router, shell, today, explore, record, workout] = await Promise.all([
+  source('router/index.js'),
+  source('components/AppShell.vue'),
+  source('views/Today.vue'),
+  source('views/Explore.vue'),
+  source('views/RecordActivity.vue'),
+  source('views/StartWorkout.vue'),
 ])
 
-assert.doesNotMatch(router, /DatabaseSchema/)
-assert.match(router, /path:\s*['"]\/schema['"][\s\S]*redirect:\s*['"]\/today['"]/)
-assert.doesNotMatch(shell, /to:\s*['"]\/schema['"]/)
-assert.match(shell, /MotionCare/)
-assert.doesNotMatch(shell, /数据库系统|GarSync Motion/)
-assert.match(productConstants, /label:\s*['"]今日['"][\s\S]*label:\s*['"]运动['"][\s\S]*label:\s*['"]记录['"][\s\S]*to:\s*['"]\/record['"][\s\S]*label:\s*['"]状态['"][\s\S]*label:\s*['"]教练['"][\s\S]*label:\s*['"]我的['"]/)
-assert.match(recordActivity, /StartWorkout/)
-assert.match(recordActivity, /实时记录/)
-assert.doesNotMatch(recordActivity, /<RouterLink/)
+const routeRecords = router.match(/^const routes = \[\n([\s\S]*?)^\]/m)?.[1]
+assert.ok(routeRecords, 'Missing router records')
+const routes = new Map(
+  routeRecords.trimEnd().split(/\n(?=  \{)/).map((record) => {
+    const path = record.match(/\bpath: '([^']+)'/)?.[1]
+    assert.ok(path, 'Missing path in a route record')
+    return [path, record]
+  }),
+)
 
-for (const legacyView of ['StartWorkout', 'Community', 'Explore', 'Assistant', 'Analytics', 'Trends']) {
-  await access(new URL(`../src/views/${legacyView}.vue`, import.meta.url))
-}
-
-for (const activeView of activeViewNames) {
-  assert.match(router, new RegExp(`import ${activeView} from`))
-}
-
-for (const route of [
-  '/today',
-  '/activities',
-  '/activities/:id',
-  '/record',
-  '/status',
-  '/status/health',
-  '/status/training-load',
-  '/status/trends',
-  '/status/calendar',
-  '/status/records',
-  '/coach',
-  '/me',
-  '/me/sync',
-  '/me/shoes',
-  '/me/security',
-  '/me/settings',
-  '/me/admin',
+for (const path of [
+  ...primaryNavigation.map(({ to }) => to),
+  '/activities/:id', '/status', '/status/health', '/status/performance',
+  '/status/training-load', '/status/trends', '/status/calendar', '/status/records',
+  '/coach', '/training-plans', '/explore/events', '/explore/courses', '/explore/routes', '/explore/weekly-report',
+  '/me', '/me/sync', '/me/shoes', '/me/security', '/me/settings', '/me/admin', '/me/training-preferences',
 ]) {
-  assert.match(router, new RegExp(`path:\\s*['"]${route.replace('/', '\\/')}['"]`))
+  const route = routes.get(path)
+  assert.ok(route, 'Missing route ' + path)
+  assert.match(route, /component:\s*\w+/, path + ' must mount a view')
+  assert.match(route, /requiresAuth: true/, path + ' must require authentication')
 }
+assert.match(routes.get('/me/admin'), /requiresAdmin: true/)
+assert.doesNotMatch(router, /DatabaseSchema/)
 
-for (const redirect of [
+for (const [legacy, current] of [
   ['/start', '/record'],
   ['/health', '/status/health'],
   ['/training-load', '/status/training-load'],
@@ -83,39 +51,40 @@ for (const redirect of [
   ['/trends', '/status/trends'],
   ['/analytics', '/status/trends'],
   ['/assistant', '/coach'],
-  ['/explore', '/coach'],
-  ['/community', '/today'],
   ['/sync', '/me/sync'],
   ['/shoes', '/me/shoes'],
   ['/settings', '/me/settings'],
   ['/admin', '/me/admin'],
   ['/schema', '/today'],
 ]) {
-  const [from, to] = redirect
-  assert.match(router, new RegExp(`path:\\s*['"]${from.replace('/', '\\/')}['"][\\s\\S]*?redirect:\\s*['"]${to.replace('/', '\\/')}['"]`))
+  assert.equal(routes.get(legacy)?.match(/redirect: '([^']+)'/)?.[1], current, legacy)
 }
 
-assert.doesNotMatch(router, /component:\s*(StartWorkout|Community|Explore|Assistant|Analytics|Trends)/)
-assert.doesNotMatch(shell, /label:\s*['"](健康|运动统计|训练负荷|跑鞋|同步|AI 助手|探索|运动圈|设置)['"]/)
-assert.match(shell, /:title="navTitle"/)
-assert.match(shell, /:left-arrow="showBack"/)
-assert.match(shell, /:left-text="showBack \? '返回' : ''"/)
-assert.match(shell, /const navTitle = computed\(\(\) => \(showBack\.value \? route\.meta\.title \|\| '返回' : 'MotionCare'\)\)/)
-assert.doesNotMatch(shell, /app-navbar-action|记录运动/)
+assert.match(shell, /const navItems = primaryNavigation/)
+assert.match(shell, /aria-label="进入我的"[^>]*@click="goProfile"/)
+assert.match(today, /path: '\/training-plans', query: \{ from: 'today' \}/)
+assert.match(explore, /path: '\/coach', query: \{ from: 'explore' \}/)
+assert.match(explore, /path: '\/status', query: \{ from: 'explore' \}/)
+assert.match(explore, /name: 'weekly-report'/)
+assert.match(record, /<StartWorkout\b/)
+assert.match(record, /<ManualActivityModal\b/)
+assert.match(workout, /@click="toggleRecording"/)
 
+const dataViews = [
+  'Today', 'Activities', 'ActivityDetail', 'Status', 'HealthDetail', 'TrainingLoad',
+  'Statistics', 'Calendar', 'Records', 'Coach', 'RecordActivity', 'Sync', 'Shoes',
+  'Admin', 'TrainingPlans', 'Community', 'WeeklyReport', 'TrainingPreferences',
+]
+const dataSources = await Promise.all(dataViews.map((name) => source('views/' + name + '.vue')))
 const forbiddenCopy = /数据库系统|数据库记录|原始字段|智能干预|浏览器模拟运动|AI Brief|Local AI|Manual activity/
-for (const [index, viewSource] of activeViewSources.entries()) {
-  const viewName = activeViewNames[index]
-  assert.doesNotMatch(viewSource, /\bfetch\s*\(/, `${viewName} must use the shared API services`)
-  assert.doesNotMatch(viewSource, forbiddenCopy, `${viewName} contains developer-facing copy`)
-  assert.match(viewSource, /StateBlock/, `${viewName} must expose a visible state`)
-}
 
-for (const dataView of ['Today', 'Activities', 'Status', 'HealthDetail', 'TrainingLoad', 'Statistics', 'Calendar', 'Records', 'Coach', 'Sync', 'Shoes', 'Admin']) {
-  const viewSource = activeViewSources[activeViewNames.indexOf(dataView)]
-  assert.match(viewSource, /loading|Loading|加载|正在/, `${dataView} is missing a loading state`)
-  assert.match(viewSource, /error|Error|失败|不可用/, `${dataView} is missing an error state`)
-  assert.match(viewSource, /empty|暂无|没有|还没有/, `${dataView} is missing an empty state`)
+for (const [index, view] of dataSources.entries()) {
+  const name = dataViews[index]
+  assert.doesNotMatch(view, /\bfetch\s*\(/, name + ' must use the shared API services')
+  assert.doesNotMatch(view, forbiddenCopy, name + ' contains developer-facing copy')
+  assert.match(view, /<StateBlock\b/, name + ' must expose a visible state')
+  assert.match(view, /loading|Loading|加载|正在/, name + ' is missing a loading state')
+  assert.match(view, /error|Error|失败|不可用/, name + ' is missing an error state')
 }
 
 console.log('Course delivery source checks passed.')

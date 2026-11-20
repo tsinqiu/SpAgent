@@ -7,16 +7,25 @@
       <button v-if="conversationBefore" type="button" :disabled="locked" @click="loadConversations">更早对话</button>
       <button type="button" :disabled="locked" @click="startConversation">新对话</button>
     </div>
+    <RouterLink class="plan-agent__preferences" :to="{ name: 'training-preferences', query: { from: 'coach' } }">
+      训练偏好设置
+    </RouterLink>
+    <button v-if="weeklyReviewWeek" class="plan-agent__weekly-preview" type="button" :disabled="locked || Boolean(loadError)" @click="previewWeeklyReview">
+      生成周报调整预览
+    </button>
 
     <StateBlock v-if="loading && !messages.length" title="正在加载对话" message="正在读取计划草案与审批状态。" />
     <StateBlock v-else-if="loadError" title="对话加载失败" :message="loadError" action-label="重试" tone="danger" @action="initialize" />
-    <div v-else-if="messages.length" ref="thread" class="plan-agent__thread" aria-label="训练计划对话内容">
+    <div v-else-if="messages.length || pendingMessage" ref="thread" class="plan-agent__thread" aria-label="训练计划对话内容">
       <button v-if="messageBefore" type="button" :disabled="locked" class="plan-agent__older" @click="loadOlder">加载更早消息</button>
       <article v-for="message in messages" :key="message.id" class="agent-message" :class="message.role">
         <small>{{ message.role === 'user' ? '你' : '教练' }}</small>
         <p>{{ message.content }}</p>
         <template v-for="(card, index) in message.cards" :key="index">
           <p v-if="card.type === 'tool_status'" class="agent-step"><Check :size="15" aria-hidden="true" />{{ card.summary }}</p>
+          <div v-else-if="card.type === 'clarification' && lastAssistantId === message.id && Date.parse(card.expiresAt) > now" class="agent-clarification">
+            <button v-for="choice in card.choices" :key="choice.message" type="button" :disabled="locked" @click="sendTurn(choice.message)">{{ choice.label }}</button>
+          </div>
           <details v-else-if="card.type === 'evidence'" class="agent-evidence" open>
             <summary>训练依据 · {{ card.mode }}</summary>
             <ul>
@@ -52,22 +61,26 @@
           />
         </template>
       </article>
+      <article v-if="pendingMessage" class="agent-message user">
+        <small>你</small>
+        <p>{{ pendingMessage }}</p>
+      </article>
+      <p v-if="pendingMessage" class="plan-agent__status" role="status">正在理解目标并查询训练数据…</p>
     </div>
     <div v-else class="plan-agent__empty">
       <p>告诉我跑步目标和每周有空的日期，我会先给你一份四周草案。</p>
       <button type="button" :disabled="locked" @click="useExample">用首次 5 公里示例</button>
     </div>
 
-    <p v-if="sending" class="plan-agent__status" role="status">正在理解目标并查询训练数据…</p>
+    <p class="soft-note">启用线上识别时，DeepSeek 只接收本轮输入。运动和恢复数据由服务端查询。</p>
     <form class="plan-agent__composer" @submit.prevent="submit">
       <textarea
         v-model.trim="draft"
-        :readonly="sending"
         rows="2"
         maxlength="1000"
         aria-label="训练目标"
         placeholder="例如每周二、四跑步，或把本周四的训练移到周五"
-        @keydown.enter.exact.prevent="submit"
+        @keydown.enter.exact="submitFromKeyboard"
       ></textarea>
       <button type="submit" :disabled="locked || !draft || Boolean(loadError)" aria-label="发送训练目标"><Send :size="18" /></button>
     </form>
@@ -85,12 +98,15 @@ import {
   createCoachConversation, decideCoachAction, listCoachConversations, listCoachMessages, sendCoachMessage,
 } from '@/services/coachAgent'
 
+const props = defineProps({ weeklyReviewWeek: { type: String, default: '' } })
+
 const conversations = ref([])
 const conversationBefore = ref(null)
 const activeId = ref(null)
 const messages = ref([])
 const messageBefore = ref(null)
 const draft = ref('')
+const pendingMessage = ref('')
 const loading = ref(true)
 const sending = ref(false)
 const loadError = ref('')
@@ -100,6 +116,7 @@ const pendingActions = reactive(new Set())
 const actionErrors = reactive({})
 const now = ref(Date.now())
 const locked = computed(() => loading.value || sending.value || pendingActions.size > 0)
+const lastAssistantId = computed(() => messages.value.findLast(message => message.role === 'assistant')?.id)
 let timer
 let pendingTurn
 
@@ -223,26 +240,54 @@ function useExample() {
   draft.value = '我想为首次 5 公里做准备，未来四周每周二、四、日有空。'
 }
 
+function setDraft(text) {
+  draft.value = text
+}
+
+defineExpose({ setDraft })
+
 async function submit() {
-  if (!draft.value || locked.value || loadError.value) return
+  const text = draft.value
+  if (await sendTurn(text) && draft.value === text) draft.value = ''
+}
+
+function submitFromKeyboard(event) {
+  if (event.isComposing || event.keyCode === 229) return
+  event.preventDefault()
+  void submit()
+}
+
+function previewWeeklyReview() {
+  return sendTurn(`预览 ${props.weeklyReviewWeek} 周报的下周训练调整`)
+}
+
+async function sendTurn(text) {
+  if (!text || locked.value || loadError.value) return false
   sending.value = true
+  pendingMessage.value = text
   operationError.value = ''
+  void scrollToLatest()
   try {
     if (!activeId.value) await addConversation()
-    if (pendingTurn?.message !== draft.value || pendingTurn?.conversationId !== activeId.value) {
-      pendingTurn = { message: draft.value, clientMessageId: newMessageId(), conversationId: activeId.value }
+    if (pendingTurn?.message !== text || pendingTurn?.conversationId !== activeId.value) {
+      pendingTurn = { message: text, clientMessageId: newMessageId(), conversationId: activeId.value }
     }
     const { messages: turn } = await sendCoachMessage(activeId.value, pendingTurn)
+    const view = thread.value
+    const follow = !view || view.scrollHeight - view.scrollTop - view.clientHeight <= 48
     const onlyNew = turn.filter(message => !messages.value.some(existing => existing.id === message.id))
     messages.value = [...messages.value, ...onlyNew]
     const conversation = conversations.value.find(item => item.id === activeId.value)
-    if (conversation?.title === '训练计划对话') conversation.title = Array.from(draft.value).slice(0, 40).join('')
-    draft.value = ''
+    if (conversation?.title === '训练计划对话') conversation.title = Array.from(text).slice(0, 40).join('')
     pendingTurn = null
-    await scrollToLatest()
+    pendingMessage.value = ''
+    if (follow) await scrollToLatest()
+    return true
   } catch (error) {
     operationError.value = friendly(error, '未能读取本次结果。可以保留输入并重试。')
+    return false
   } finally {
+    pendingMessage.value = ''
     sending.value = false
   }
 }
@@ -275,8 +320,27 @@ onBeforeUnmount(() => clearInterval(timer))
 .plan-agent { display: grid; gap: 10px; min-width: 0; }
 .plan-agent__toolbar { display: flex; flex-wrap: wrap; gap: 8px; }
 .plan-agent__toolbar select { flex: 1 1 126px; min-width: 0; }
+.plan-agent__preferences {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  min-height: 44px;
+  color: var(--green-strong);
+  font-size: 13px;
+  font-weight: 700;
+}
+.plan-agent__weekly-preview {
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel-soft);
+  color: var(--green-strong);
+  font-weight: 700;
+}
+.plan-agent__weekly-preview:disabled { opacity: .55; }
 .plan-agent__toolbar :is(button, select),
 .plan-agent__older,
+.agent-clarification button,
 .plan-agent__empty button {
   min-height: 44px;
   padding: 6px 10px;
@@ -287,6 +351,7 @@ onBeforeUnmount(() => clearInterval(timer))
   font: inherit;
   font-size: 13px;
 }
+.agent-clarification { display: flex; flex-wrap: wrap; gap: 8px; }
 .plan-agent__thread { display: grid; gap: 10px; max-height: min(67dvh, 620px); overflow-y: auto; padding: 2px; }
 .agent-message {
   min-width: 0;

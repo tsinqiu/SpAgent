@@ -12,8 +12,13 @@ test('ui smoke audits every primary app route after authentication', () => {
     '/activities',
     '/activities/',
     '/record',
+    '/explore',
+    '/explore/weekly-report',
+    '/community',
+    '/training-plans',
     '/status',
     '/status/health',
+    '/status/performance',
     '/status/training-load',
     '/status/trends',
     '/status/calendar',
@@ -24,6 +29,7 @@ test('ui smoke audits every primary app route after authentication', () => {
     '/me/shoes',
     '/me/security',
     '/me/settings',
+    '/me/training-preferences',
   ]) {
     assert.match(source, new RegExp(route.replaceAll('/', '\\/')))
   }
@@ -86,17 +92,19 @@ test('ui smoke ignores navigation-aborted requests that happen during route chan
   assert.match(source, /ERR_ABORTED/)
 })
 
-test('ui smoke follows MotionCare navigation instead of hard-coded RQrun placeholders', () => {
-  assert.doesNotMatch(source, /赛事|课表|RQ课程/)
-  assert.match(source, /requiredText: \['训练总览'\]/)
-  assert.match(source, /requiredText: \['运动记录'\]/)
-  assert.match(source, /requiredText: \['训练建议'\]/)
-  assert.doesNotMatch(source, /rqTabs: \['今日', '记录', '教练'\]/)
-  assert.doesNotMatch(source, /rqTabs: \['运动记录', '我的状态', '运动统计'\]/)
-  assert.doesNotMatch(source, /rqTabs: \['体能', '跑力', '技术'\]/)
+test('ui smoke exercises download and account error regressions', () => {
+  assert.match(source, /await exercisePublicRegressions\(context\)/)
+  assert.match(source, /contentType: 'text\/html'/)
+  assert.match(source, /contentType: 'application\/vnd\.android\.package-archive'/)
+  assert.match(source, /INVALID_CREDENTIALS/)
+  assert.match(source, /route\.abort\('failed'\)/)
 })
 
-test('ui smoke status route checks the current status hero copy', () => {
-  assert.doesNotMatch(source, /requiredText: \['身体状态'\]/)
-  assert.match(source, /requiredText: \['身体与训练'\]/)
+test('ui smoke verifies that data filters and back navigation work together', () => {
+  assert.match(source, /await exerciseRangeAndNavigation\(context\)/)
+  assert.match(source, /\/api\/training\/load-balance/)
+  assert.match(source, /\/api\/stats\/metric-trends/)
+  assert.match(source, /趋势加载失败/)
+  assert.match(source, /from=constructor/)
+  assert.match(source, /from=explore/)
 })

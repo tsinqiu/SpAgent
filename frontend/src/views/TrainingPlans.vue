@@ -2,25 +2,27 @@
   <div
     class="training-plan-page"
     :class="{
-      'training-plan-page--detail': selectedPlan,
+      'training-plan-page--detail': detailPlan,
       'training-plan-page--empty': !selectedPlan && !loading && !loadError && plans.length === 0,
     }"
   >
     <StateBlock v-if="loadError" title="训练计划加载失败" :message="loadError" tone="danger" action-label="重试" @action="refreshPlans" />
     <StateBlock v-else-if="loading" title="正在加载训练计划" message="正在读取已保存的训练安排。" />
-    <template v-else-if="selectedPlan">
+    <template v-else-if="detailPlan">
       <header class="training-detail-hero">
-        <span class="training-detail-icon" :style="{ '--plan-color': typeMeta(selectedPlan.type).color }">
-          <component :is="typeMeta(selectedPlan.type).icon" :size="32" aria-hidden="true" />
+        <span class="training-detail-icon" :style="{ '--plan-color': typeMeta(detailPlan.type).color }">
+          <component :is="typeMeta(detailPlan.type).icon" :size="32" aria-hidden="true" />
         </span>
         <div>
-          <h2>{{ selectedPlan.name }}</h2>
-          <p>{{ selectedPlan.goal }}</p>
-          <p v-if="selectedPlan.weeklyFrequency">每周 {{ selectedPlan.weeklyFrequency }} 次</p>
-          <span>{{ statusLabels[selectedPlan.status] }} · {{ selectedDetailWeek.phase }}</span>
+          <h2>{{ detailPlan.name }}</h2>
+          <p>{{ detailPlan.goal }}</p>
+          <p v-if="detailPlan.weeklyFrequency">每周 {{ detailPlan.weeklyFrequency }} 次</p>
+          <span>{{ statusLabels[detailPlan.status] }} · {{ selectedDetailWeek?.phase }}</span>
         </div>
       </header>
 
+      <StateBlock v-if="!selectedPlan" title="正在读取训练安排" message="正在加载每周任务和训练记录。" action-label="返回列表" @action="closePlan" />
+      <template v-else>
       <nav class="training-detail-weeks" aria-label="训练周次">
         <button
           v-for="week in selectedPlan.weeks"
@@ -36,7 +38,12 @@
       </nav>
 
       <section class="training-detail-workouts" aria-label="本周训练安排">
-        <article v-for="workout in selectedDetailWeek.days" :key="workout.date">
+        <article
+          v-for="workout in selectedDetailWeek.days"
+          :key="workout.date"
+          :data-training-session="workout.id"
+          :class="{ 'training-workout-current': workout.id && String(workout.id) === route.query.session }"
+        >
           <span :title="weekdayNames[weekday(workout.date)]">{{ workout.date.slice(5) }}</span>
           <div class="training-workout-content">
             <strong>{{ workout.title }}</strong>
@@ -46,7 +53,7 @@
               <span>{{ sessionLabels[workout.status] }}</span>
               <template v-if="selectedPlan.status === 'active'">
                 <template v-if="workout.status === 'pending'">
-                  <button type="button" :disabled="busy" @click="recordSession(workout, 'completed')">标为完成</button>
+                  <button v-if="workout.date <= today" type="button" :disabled="busy" @click="recordSession(workout, 'completed')">标为完成</button>
                   <button type="button" :disabled="busy" @click="recordSession(workout, 'skipped')">跳过</button>
                 </template>
                 <button v-else-if="!workout.execution" type="button" :disabled="busy" @click="recordSession(workout, 'pending')">撤销状态</button>
@@ -76,6 +83,7 @@
         <button v-if="selectedPlan.status === 'active'" type="button" :disabled="busy" @click="archivePlan">归档</button>
         <button v-if="selectedPlan.status === 'draft'" type="button" :disabled="busy" @click="removePlan">删除草稿</button>
       </div>
+      </template>
     </template>
 
     <template v-else>
@@ -171,12 +179,11 @@
       </div>
     </template>
 
-    <Teleport to=".phone-frame">
-      <div v-if="showImportSheet" class="training-sheet-backdrop" role="presentation" @click.self="showImportSheet = false">
-        <section class="training-sheet" role="dialog" aria-modal="true" aria-label="导入常用计划">
+    <TrainingSheet v-if="showImportSheet" label="导入常用计划" @dismiss="showImportSheet = false">
+        <section class="training-sheet">
           <header>
             <strong>导入常用计划</strong>
-            <button type="button" aria-label="关闭" @click="showImportSheet = false">
+            <button type="button" aria-label="关闭" autofocus @click="showImportSheet = false">
               <X :size="20" aria-hidden="true" />
             </button>
           </header>
@@ -205,15 +212,13 @@
             </button>
           </div>
         </section>
-      </div>
-    </Teleport>
+    </TrainingSheet>
 
-    <Teleport to=".phone-frame">
-      <div v-if="customOpen" class="training-sheet-backdrop" role="presentation" @click.self="closeCustomCreator">
-        <section class="training-sheet training-custom-sheet" role="dialog" aria-modal="true" :aria-label="editing ? '编辑训练计划' : '创建训练计划'">
+    <TrainingSheet v-if="customOpen" :label="editing ? '编辑训练计划' : '创建训练计划'" @dismiss="closeCustomCreator">
+        <section class="training-sheet training-custom-sheet">
           <header>
             <strong>{{ editing ? '编辑训练计划' : '创建训练计划' }}</strong>
-            <button type="button" aria-label="关闭" @click="closeCustomCreator">
+            <button type="button" aria-label="关闭" autofocus @click="closeCustomCreator">
               <X :size="20" aria-hidden="true" />
             </button>
           </header>
@@ -282,14 +287,13 @@
             </div>
           </form>
         </section>
-      </div>
-    </Teleport>
+    </TrainingSheet>
   </div>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { showConfirmDialog, showToast } from 'vant'
 import {
   Activity,
@@ -312,6 +316,7 @@ import StateBlock from '@/components/StateBlock.vue'
 import TrainingExecution from '@/components/TrainingExecution.vue'
 import TrainingPlanHistory from '@/components/TrainingPlanHistory.vue'
 import TrainingSessionLink from '@/components/TrainingSessionLink.vue'
+import TrainingSheet from '@/components/TrainingSheet.vue'
 import { formatPaceSeconds } from '@/utils/formatters'
 import {
   changePlanStatus, changeSessionStatus, deleteDraftPlan,
@@ -320,6 +325,7 @@ import {
 
 const weekdayNames = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
 const route = useRoute()
+const router = useRouter()
 const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format()
 const runningGoals = [
   { id: 'first_5k', name: '首次 5 公里', description: '用四周建立跑走节奏，为首次完成 5 公里做准备。', minutes: [20, 22, 25, 28] },
@@ -339,6 +345,8 @@ const loading = ref(true)
 const loadError = ref('')
 const busy = ref(false)
 const selectedPlan = ref(null)
+const openingPlan = shallowRef(null)
+const detailPlan = computed(() => selectedPlan.value || openingPlan.value?.plan)
 const detailActiveWeek = ref(1)
 const showImportSheet = ref(false)
 const customOpen = ref(false)
@@ -355,7 +363,7 @@ const activeCustomDays = computed(() => (
   customWeeks.value.find((week) => week.week === customActiveWeek.value)?.days || []
 ))
 const selectedDetailWeek = computed(() => (
-  selectedPlan.value?.weeks.find((week) => week.week === detailActiveWeek.value) || selectedPlan.value?.weeks[0]
+  detailPlan.value?.weeks.find((week) => week.week === detailActiveWeek.value) || detailPlan.value?.weeks[0]
 ))
 
 function typeMeta(type) {
@@ -462,25 +470,64 @@ function displayPlan(plan, resetWeek = false) {
   selectedPlan.value = plan
 }
 
+function rememberPlan(plan, resetWeek = false) {
+  displayPlan(plan, resetWeek)
+  if (String(plan.id) !== route.query.planId) void router.replace({ query: { ...route.query, planId: plan.id } })
+}
+
 function importTemplate(course) {
   return act(async () => {
     const plan = await saveTrainingPlan(null, {
       name: course.name, type: course.type, goal: course.goal, startDate: nextMonday(), weeks: course.weeks,
     })
     showImportSheet.value = false
-    displayPlan(plan, true)
+    rememberPlan(plan, true)
     showToast('已导入训练计划')
   })
 }
 
 function openPlan(plan) {
-  return act(async () => {
-    displayPlan(await getTrainingPlan(plan.id), true)
-  })
+  if (!busy.value && !openingPlan.value) void router.push({ query: { ...route.query, planId: plan.id } })
+}
+
+async function showRoutePlan() {
+  const id = route.query.planId
+  if (id && String(selectedPlan.value?.id) === id) return
+  selectedPlan.value = null
+  openingPlan.value = null
+  if (loading.value || typeof id !== 'string') return
+  const plan = plans.value.find(item => String(item.id) === id)
+  if (!plan) return
+  const request = { plan }
+  openingPlan.value = request
+  detailActiveWeek.value = plan.currentWeek
+  try {
+    const result = await getTrainingPlan(plan.id)
+    if (openingPlan.value !== request) return
+    displayPlan(result, true)
+    const sessionId = route.query.session
+    if (typeof sessionId === 'string' && /^\d+$/.test(sessionId)) {
+      const week = result.weeks.find(item => item.days.some(day => String(day.id) === sessionId))
+      if (!week) return
+      detailActiveWeek.value = week.week
+      await nextTick()
+      if (openingPlan.value !== request) return
+      const row = document.querySelector(`[data-training-session="${sessionId}"]`)
+      const scroller = row?.closest('.page-frame')
+      if (scroller) scroller.scrollTop += row.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 16
+    }
+  } catch (error) {
+    if (openingPlan.value === request) showToast(errorMessage(error))
+  } finally {
+    if (openingPlan.value === request) openingPlan.value = null
+  }
 }
 
 function closePlan() {
+  openingPlan.value = null
   selectedPlan.value = null
+  const { planId, session, ...query } = route.query
+  if (planId != null || session != null) void router.replace({ query })
 }
 
 function openCustomCreator(goal = null) {
@@ -560,14 +607,14 @@ function saveCustomPlan() {
       ...customDraft, weeks, version: editing.value?.version,
     })
     customOpen.value = false
-    displayPlan(plan, !editing.value)
+    rememberPlan(plan, !editing.value)
     showToast('训练计划已保存')
   })
 }
 
 function startPlan(plan) {
   return act(async () => {
-    displayPlan(await changePlanStatus(plan.id, plan.version, 'activate'))
+    rememberPlan(await changePlanStatus(plan.id, plan.version, 'activate'))
     showToast('计划已开始')
   })
 }
@@ -615,28 +662,30 @@ async function removePlan() {
 }
 
 function handleNavAction() {
-  if (!busy.value && !loading.value) refreshPlans()
+  if (!busy.value && !loading.value && !openingPlan.value) refreshPlans()
 }
 
 function handleShellBack(event) {
-  if (!selectedPlan.value) return
+  if (!detailPlan.value) return
   event.preventDefault()
   closePlan()
 }
 
 onMounted(async () => {
-  window.dispatchEvent(new CustomEvent('motioncare:nav-action', { detail: { icon: RefreshCw, label: '刷新' } }))
-  window.addEventListener('motioncare:nav-action-click', handleNavAction)
-  window.addEventListener('motioncare:nav-back', handleShellBack)
+  window.dispatchEvent(new CustomEvent('spagent:nav-action', { detail: { icon: RefreshCw, label: '刷新' } }))
+  window.addEventListener('spagent:nav-action-click', handleNavAction)
+  window.addEventListener('spagent:nav-back', handleShellBack)
   await refreshPlans()
-  const linkedPlan = plans.value.find(plan => String(plan.id) === route.query.planId)
-  if (linkedPlan) await openPlan(linkedPlan)
+  await showRoutePlan()
 })
 
+watch(() => route.query.planId, showRoutePlan)
+
 onBeforeUnmount(() => {
-  window.dispatchEvent(new CustomEvent('motioncare:nav-action', { detail: null }))
-  window.removeEventListener('motioncare:nav-action-click', handleNavAction)
-  window.removeEventListener('motioncare:nav-back', handleShellBack)
+  openingPlan.value = null
+  window.dispatchEvent(new CustomEvent('spagent:nav-action', { detail: null }))
+  window.removeEventListener('spagent:nav-action-click', handleNavAction)
+  window.removeEventListener('spagent:nav-back', handleShellBack)
 })
 </script>
 
@@ -1132,17 +1181,6 @@ button:disabled {
   color: #fff;
 }
 
-.training-sheet-backdrop {
-  position: absolute;
-  inset: 0;
-  z-index: 90;
-  display: flex;
-  align-items: flex-end;
-  padding: 12px;
-  padding-bottom: calc(12px + var(--safe-bottom));
-  background: rgb(6 20 14 / 0.34);
-}
-
 .training-sheet {
   width: 100%;
   max-height: min(78dvh, 680px);
@@ -1153,6 +1191,11 @@ button:disabled {
   border: 1px solid color-mix(in srgb, var(--text) 14%, transparent);
   background: var(--panel);
   box-shadow: 0 24px 70px rgb(15 23 42 / 0.24);
+}
+
+.training-detail-workouts .training-workout-current {
+  outline: 2px solid var(--green-strong);
+  outline-offset: -2px;
 }
 
 .training-sheet header {

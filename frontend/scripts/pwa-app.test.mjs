@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { clearSavedValue, readSavedValue } from '../src/services/browserStorage.js'
 
 async function source(path) {
   try {
@@ -19,22 +20,44 @@ async function json(path) {
 const [indexHtml, manifest, iconSvg, maskableSvg] = await Promise.all([
   source('index.html'),
   json('public/manifest.webmanifest'),
-  source('public/icons/motioncare-icon.svg'),
-  source('public/icons/motioncare-maskable.svg'),
+  source('public/icons/spagent-icon.svg'),
+  source('public/icons/spagent-maskable.svg'),
 ])
 
-test('index advertises MotionCare as an installable mobile app', () => {
+test('rebranded browser storage preserves a session and per-activity drafts across the upgrade', () => {
+  const entries = new Map([
+    ['motion-analysis-token', 'synthetic-session'],
+    ['motioncare-activity-self-review:12', 'synthetic-draft'],
+    ['motioncare-activity-self-review:13', 'other-draft'],
+  ])
+  const storage = {
+    getItem: key => entries.get(key) ?? null,
+    setItem: (key, value) => entries.set(key, value),
+    removeItem: key => entries.delete(key),
+  }
+
+  assert.equal(readSavedValue(storage, 'spagent-token'), 'synthetic-session')
+  assert.equal(entries.has('motion-analysis-token'), false)
+  assert.equal(readSavedValue(storage, 'spagent-activity-self-review:12'), 'synthetic-draft')
+  assert.equal(entries.get('motioncare-activity-self-review:13'), 'other-draft')
+  entries.set('motion-analysis-token', 'stale-session')
+  assert.equal(readSavedValue(storage, 'spagent-token'), 'synthetic-session')
+  clearSavedValue(storage, 'spagent-token')
+  assert.equal(readSavedValue(storage, 'spagent-token'), null)
+})
+
+test('index advertises SpAgent as an installable mobile app', () => {
   assert.match(indexHtml, /<link\s+rel="manifest"\s+href="\/manifest\.webmanifest"\s*\/?>/)
   assert.match(indexHtml, /<meta\s+name="theme-color"\s+content="#15b66a"\s*\/?>/)
   assert.match(indexHtml, /<meta\s+name="apple-mobile-web-app-capable"\s+content="yes"\s*\/?>/)
-  assert.match(indexHtml, /<meta\s+name="apple-mobile-web-app-title"\s+content="MotionCare"\s*\/?>/)
-  assert.match(indexHtml, /<link\s+rel="apple-touch-icon"\s+href="\/icons\/motioncare-maskable\.svg"\s*\/?>/)
+  assert.match(indexHtml, /<meta\s+name="apple-mobile-web-app-title"\s+content="SpAgent"\s*\/?>/)
+  assert.match(indexHtml, /<link\s+rel="apple-touch-icon"\s+href="\/icons\/spagent-maskable\.svg"\s*\/?>/)
 })
 
 test('manifest uses the RQ-style green runner app identity', () => {
   assert.ok(manifest, 'manifest.webmanifest should exist')
-  assert.equal(manifest.name, 'MotionCare')
-  assert.equal(manifest.short_name, 'MotionCare')
+  assert.equal(manifest.name, 'SpAgent')
+  assert.equal(manifest.short_name, 'SpAgent')
   assert.equal(manifest.display, 'standalone')
   assert.equal(manifest.start_url, '/today')
   assert.equal(manifest.scope, '/')
@@ -46,18 +69,18 @@ test('manifest uses the RQ-style green runner app identity', () => {
 test('manifest provides regular and maskable app icons', () => {
   assert.ok(manifest, 'manifest.webmanifest should exist')
   assert.ok(Array.isArray(manifest.icons))
-  assert.ok(manifest.icons.some((icon) => icon.src === '/icons/motioncare-icon.svg' && icon.purpose === 'any'))
-  assert.ok(manifest.icons.some((icon) => icon.src === '/icons/motioncare-maskable.svg' && icon.purpose === 'maskable'))
+  assert.ok(manifest.icons.some((icon) => icon.src === '/icons/spagent-icon.svg' && icon.purpose === 'any'))
+  assert.ok(manifest.icons.some((icon) => icon.src === '/icons/spagent-maskable.svg' && icon.purpose === 'maskable'))
   assert.ok(manifest.icons.every((icon) => icon.type === 'image/svg+xml'))
 })
 
 test('app icons carry a simple deep-green route runner mark', () => {
   assert.match(iconSvg, /#2e681d/)
   assert.match(iconSvg, /#15b66a/)
-  assert.match(iconSvg, /MotionCare route runner/)
+  assert.match(iconSvg, /SpAgent route runner/)
   assert.match(maskableSvg, /#2e681d/)
   assert.match(maskableSvg, /#15b66a/)
-  assert.match(maskableSvg, /MotionCare route runner/)
+  assert.match(maskableSvg, /SpAgent route runner/)
   assert.match(maskableSvg, /viewBox="0 0 512 512"/)
   assert.match(iconSvg, /stroke-linecap="round"/)
   assert.match(iconSvg, /#f6d34d/)

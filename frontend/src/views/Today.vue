@@ -1,8 +1,16 @@
 <template>
   <div class="page-stack today-home">
+    <TodayTraining />
+    <TrainingReminders />
+    <nav class="today-action-grid" aria-label="今日快捷入口">
+      <RouterLink v-for="item in todayActions" :key="item.label" :to="item.to">
+        <component :is="item.icon" :size="32" :style="{ color: item.color }" aria-hidden="true" />
+        <span>{{ item.label }}</span>
+      </RouterLink>
+    </nav>
     <StateBlock v-if="loading" title="正在准备今日建议" message="正在读取身体状态、训练负荷和最近运动。" />
     <StateBlock
-      v-else-if="!hasData && errors.length"
+      v-else-if="!coreLoaded && errors.length"
       title="今日数据加载失败"
       message="连接暂时不可用，稍后再试一次。"
       action-label="重试"
@@ -48,23 +56,10 @@
           </div>
         </div>
         <div class="today-weather-card__bottom">
-          <div>
-            <span>体感 {{ weatherCard.feelsLike }}</span>
-            <span>风力 {{ weatherCard.wind }}</span>
-          </div>
-          <button type="button" class="location-pill">
-            <Crosshair :size="18" />
-            开启定位
-          </button>
+          <span>体感 {{ weatherCard.feelsLike }}</span>
+          <span>风力 {{ weatherCard.wind }}</span>
         </div>
       </section>
-
-      <nav class="today-action-grid" aria-label="今日快捷入口">
-        <RouterLink v-for="item in todayActions" :key="item.label" :to="item.to">
-          <component :is="item.icon" :size="32" :style="{ color: item.color }" aria-hidden="true" />
-          <span>{{ item.label }}</span>
-        </RouterLink>
-      </nav>
 
       <section class="today-activity-section">
         <ActivityCard
@@ -77,7 +72,7 @@
           <span aria-hidden="true">
             <CalendarDays :size="34" />
           </span>
-          <strong>今日无训练安排</strong>
+          <strong>当日暂无运动记录</strong>
         </article>
       </section>
 
@@ -111,8 +106,7 @@
         </div>
         <div class="microcycle-summary">
           <span><small>周负荷</small><b>{{ weekSummary.load }}</b></span>
-          <span><small>训练日</small><b>{{ weekSummary.activeDays }}</b></span>
-          <span><small>完成度</small><b>{{ weekSummary.completion }}</b></span>
+          <span><small>有负荷记录</small><b>{{ weekSummary.activeDays }}</b></span>
         </div>
         <div class="microcycle-bars" aria-label="本周训练负荷">
           <span
@@ -139,7 +133,6 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardList,
-  Crosshair,
   Download as DownloadIcon,
   HeartPulse,
   MapPin,
@@ -150,6 +143,8 @@ import { useRouter } from 'vue-router'
 
 import ActivityCard from '@/components/ActivityCard.vue'
 import StateBlock from '@/components/StateBlock.vue'
+import TodayTraining from '@/components/TodayTraining.vue'
+import TrainingReminders from '@/components/TrainingReminders.vue'
 import { getDailyBrief } from '@/services/ai'
 import { getDashboardOverview, getTodayHealth } from '@/services/dashboard'
 import { getPerformanceProfile } from '@/services/performance'
@@ -162,7 +157,8 @@ const brief = ref(null)
 const performanceProfile = ref(null)
 const loading = ref(false)
 const errors = ref([])
-const briefAvailable = ref(false)
+const coreLoaded = ref(false)
+let loadVersion = 0
 const selectedDate = ref(startOfDay(new Date()))
 const showApkDownloadEntry = !Capacitor.isNativePlatform()
 
@@ -176,11 +172,6 @@ const statusBadge = computed(() => deriveStatusBadge({
   avgStressLevel: health.value.avgStressLevel,
   tsb: currentLoad.value.tsb,
 }))
-const hasData = computed(() => (
-  Object.keys(health.value || {}).length > 0
-  || recentActivities.value.length > 0
-  || (overview.value.trainingLoad || []).length > 0
-))
 const trainingIndex = computed(() => performanceProfile.value?.trainingIndex || null)
 const trainingIndexScore = computed(() => {
   const fromProfile = Number(trainingIndex.value?.score)
@@ -253,7 +244,6 @@ const weekSummary = computed(() => {
   const rows = weeklyLoadBars.value
   const totalLoad = rows.reduce((sum, row) => sum + row.load, 0)
   const activeDays = rows.filter((row) => row.hasLoad).length
-  const completionValue = Math.min(100, Math.round((activeDays / 5) * 100))
 
   if (!totalLoad) {
     return {
@@ -261,7 +251,6 @@ const weekSummary = computed(() => {
       tone: 'neutral',
       load: '--',
       activeDays: '0 天',
-      completion: '0%',
       message: '本周还没有训练负荷记录，可以从一次轻松跑或同步数据开始。',
     }
   }
@@ -269,11 +258,10 @@ const weekSummary = computed(() => {
   const isHeavyWeek = totalLoad >= 420
   const isConsistent = activeDays >= 4
   return {
-    label: isHeavyWeek ? '负荷偏高' : isConsistent ? '节奏稳定' : '继续堆量',
+    label: isHeavyWeek ? '负荷偏高' : isConsistent ? '节奏稳定' : '已有记录',
     tone: isHeavyWeek ? 'warning' : isConsistent ? 'good' : 'steady',
     load: Math.round(totalLoad),
     activeDays: `${activeDays} 天`,
-    completion: `${completionValue}%`,
     message: isHeavyWeek
       ? '本周刺激已经足够，下一次训练优先控制强度并观察恢复。'
       : isConsistent
@@ -317,7 +305,7 @@ function buildWeekRows() {
   for (const row of overview.value.trainingLoad || []) {
     const key = normalizeDateKey(row.date)
     if (!key) continue
-    const load = Number(row.dailyTrainingLoad || row.daily_training_load || row.ctl || 0)
+    const load = Number(row.dailyTrainingLoad ?? row.daily_training_load ?? 0)
     loadsByDate.set(key, Math.max(loadsByDate.get(key) || 0, Number.isFinite(load) ? load : 0))
   }
 
@@ -350,15 +338,24 @@ function normalizeDateKey(value) {
 }
 
 async function loadToday() {
+  const version = ++loadVersion
   loading.value = true
   errors.value = []
-  briefAvailable.value = false
+  const briefRequest = getDailyBrief().then(result => {
+    if (version !== loadVersion) return
+    brief.value = result.data || null
+  }).catch(() => {
+    if (version !== loadVersion) return
+    brief.value = null
+    errors.value.push('个性化建议暂时不可用')
+  })
   const results = await Promise.allSettled([
-    getDashboardOverview(),
+    getDashboardOverview({ view: 'today' }),
     getTodayHealth(),
-    getDailyBrief(),
     getPerformanceProfile(),
   ])
+  if (version !== loadVersion) return
+  coreLoaded.value = results.some(result => result.status === 'fulfilled')
 
   if (results[0].status === 'fulfilled') overview.value = results[0].value
   else {
@@ -371,19 +368,13 @@ async function loadToday() {
     errors.value.push('身体状态加载失败')
   }
   if (results[2].status === 'fulfilled') {
-    brief.value = results[2].value.data || null
-    briefAvailable.value = Boolean(brief.value)
-  } else {
-    brief.value = null
-    errors.value.push('个性化建议暂时不可用')
-  }
-  if (results[3].status === 'fulfilled') {
-    performanceProfile.value = results[3].value
+    performanceProfile.value = results[2].value
   } else {
     performanceProfile.value = null
     errors.value.push('训练指数模型暂时不可用')
   }
   loading.value = false
+  await briefRequest
 }
 
 onMounted(loadToday)
@@ -533,34 +524,11 @@ onMounted(loadToday)
 
 .today-weather-card__bottom {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 14px;
+  gap: 4px;
   padding-top: 14px;
   border-top: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
-}
-
-.today-weather-card__bottom div {
-  display: grid;
-  gap: 4px;
   color: var(--text);
   line-height: 1.35;
-}
-
-.location-pill {
-  min-height: 42px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 0 18px;
-  border: 0;
-  border-radius: 999px;
-  background: var(--app-green);
-  color: #fff;
-  font-weight: 900;
-  white-space: nowrap;
-  cursor: pointer;
 }
 
 .today-action-grid {
@@ -902,7 +870,7 @@ onMounted(loadToday)
 }
 .microcycle-summary {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 .microcycle-summary span {

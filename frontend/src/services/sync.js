@@ -1,4 +1,4 @@
-import { collectionPayload, getEnvelope } from '@/services/api'
+import { collectionPayload, getEnvelope, mutateEnvelope } from '@/services/api'
 import { apiClient, unwrapApiResponse } from '@/services/http'
 
 const PROVIDER_NAMES = {
@@ -108,11 +108,12 @@ export async function disconnectGarminAccount() {
 }
 
 export async function createSyncJob(payload) {
-  const response = await apiClient.post('/sync/jobs', { jobType: 'manual_sync', ...payload }, {
-    timeout: 600000,
-  })
-  const envelope = unwrapApiResponse(response.data)
+  const envelope = await mutateEnvelope('post', '/sync/jobs', { jobType: 'manual_sync', ...payload })
   return normalizeJob(envelope.data)
+}
+
+export async function getSyncJob(id) {
+  return (await getEnvelope(`/sync/jobs/${id}`, { normalizer: normalizeJob })).data
 }
 
 export async function getSyncJobs(params = {}) {

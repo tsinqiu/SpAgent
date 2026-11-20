@@ -7,18 +7,16 @@
       </div>
       <slot name="action" />
     </div>
-    <div ref="chartRef" class="chart-canvas" role="img" :aria-label="title"></div>
+    <div class="chart-canvas-wrap" :aria-busy="loading">
+      <div ref="chartRef" class="chart-canvas" role="img" :aria-label="title"></div>
+      <p v-if="loading" role="status">正在准备图表…</p>
+      <button v-else-if="failed" type="button" @click="initialize">图表加载失败，重试</button>
+    </div>
   </section>
 </template>
 
 <script setup>
-import { BarChart, LineChart, PieChart, ScatterChart } from 'echarts/charts'
-import { GraphicComponent, GridComponent, LegendComponent, MarkAreaComponent, TooltipComponent, VisualMapComponent } from 'echarts/components'
-import { init, use } from 'echarts/core'
-import { CanvasRenderer } from 'echarts/renderers'
 import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
-
-use([BarChart, CanvasRenderer, GraphicComponent, GridComponent, LegendComponent, LineChart, MarkAreaComponent, PieChart, ScatterChart, TooltipComponent, VisualMapComponent])
 
 const props = defineProps({
   title: {
@@ -37,34 +35,67 @@ const props = defineProps({
 
 const chartRef = ref(null)
 const chart = shallowRef(null)
-let resizeObserver = null
+const loading = ref(true)
+const failed = ref(false)
+let active = false
+let resizeObserver
 
-function renderChart() {
-  if (!chartRef.value) return
-
-  if (!chart.value) {
-    chart.value = init(chartRef.value)
-  }
-
-  chart.value.setOption(props.option, true)
-}
+function renderChart() { chart.value?.setOption(props.option, true) }
 
 function resizeChart() {
   chart.value?.resize()
 }
 
+async function initialize() {
+  loading.value = true
+  failed.value = false
+  try {
+    const { init } = await import('@/utils/chartEngine')
+    if (!active) return
+    chart.value = init(chartRef.value)
+    renderChart()
+  } catch {
+    chart.value?.dispose()
+    chart.value = null
+    failed.value = true
+  } finally {
+    loading.value = false
+  }
+}
+
 onMounted(() => {
-  renderChart()
+  active = true
   resizeObserver = new ResizeObserver(resizeChart)
   resizeObserver.observe(chartRef.value)
   window.addEventListener('resize', resizeChart)
+  void initialize()
 })
 
 watch(() => props.option, renderChart, { deep: true })
 
 onBeforeUnmount(() => {
+  active = false
   resizeObserver?.disconnect()
   window.removeEventListener('resize', resizeChart)
   chart.value?.dispose()
 })
 </script>
+
+<style scoped>
+.chart-canvas-wrap { position: relative; min-width: 0; }
+.chart-canvas-wrap > :is(p, button) {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+  margin: 0;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.chart-canvas-wrap > button {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+</style>

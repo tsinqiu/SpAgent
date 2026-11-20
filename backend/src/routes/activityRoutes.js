@@ -24,6 +24,7 @@ const {
 } = require('../http');
 const { sendData, sendPaged } = require('../response');
 const { removeUploadedFile, validateUploadedFile } = require('../services/uploadSecurity');
+const { preventPhotoCaching, sendPrivatePhoto } = require('../services/privatePhoto');
 
 const ACTIVITY_SORT_FIELDS = [
   'local_start_time',
@@ -189,6 +190,12 @@ function createActivityRouter(activityService = defaultActivityService, authServ
       })
     );
 
+  router.get('/activities/:id/photo', preventPhotoCaching, requireAuth, asyncHandler(async (req, res) => {
+    const activityId = parsePositiveId(req.params.id, 'activity id');
+    const activity = await activityService.assertActivityReadable(req.user, activityId);
+    await sendPrivatePhoto(res, activity.photoPath, 'activity-images', config.uploads.activityImagesDir);
+  }));
+
   router.post(
     '/activities/:id/photo',
     authenticate(authService),
@@ -230,6 +237,7 @@ function createActivityRouter(activityService = defaultActivityService, authServ
     authenticate(authService),
     asyncHandler(async (req, res) => {
       const activityId = parsePositiveId(req.params.id, 'activity id');
+      await activityService.assertActivityReadable(req.user, activityId);
       const current = await activityService.getActivityById(activityId);
       if (!current) {
         throw new ApiError(404, 'activity not found');

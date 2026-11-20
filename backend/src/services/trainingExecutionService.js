@@ -1,10 +1,10 @@
 const db = require('../db');
 const { ApiError } = require('../errors');
+const { trainingActivityTimestamp, runningActivityPredicate } = require('./activityService');
 const { addDays, localToday } = require('./trainingPlanInput');
 
-const running = "(a.sport_code = 1 OR a.activity_type = 'running' OR RIGHT(a.activity_type, 8) = '_running')";
-const activityDate = `DATE(CASE WHEN a.data_source = 'live_workout' OR a.local_start_time IS NULL
-  THEN DATE_ADD(a.start_time_utc, INTERVAL 8 HOUR) ELSE a.local_start_time END)`;
+const running = runningActivityPredicate;
+const activityDate = `DATE(${trainingActivityTimestamp})`;
 const activityColumns = `a.id, a.activity_name AS name, ${activityDate} AS date,
   a.data_source AS source, ct.distance_m AS distanceM, ct.duration_s AS durationS,
   ${running} AS isRunning`;
@@ -93,7 +93,7 @@ async function activityCandidates(userId, sessionId) {
     SELECT ${activityColumns} FROM ${activityTables}
     LEFT JOIN TrainingSessionActivities e ON e.activity_id = a.id
     WHERE a.owner_user_id = ? AND ${running} AND e.session_id IS NULL
-      AND ${activityDate} BETWEEN ? AND ?
+      AND ${trainingActivityTimestamp} >= ? AND ${trainingActivityTimestamp} < DATE_ADD(?, INTERVAL 1 DAY)
     ORDER BY ABS(DATEDIFF(${activityDate}, ?)), a.id DESC LIMIT 25`,
   [userId, addDays(session.date, -7), minDate(addDays(session.date, 7), localToday()), session.date]);
 }
@@ -140,8 +140,9 @@ function linkActivity(userId, sessionId, activityId, version, method = 'manual')
       if (!isTrusted(session, activity)) return null;
       const matching = await query(`
         SELECT a.id FROM ${activityTables} WHERE a.owner_user_id = ?
-        AND ${running} AND ${activityDate} = ? AND ct.distance_m > 0 AND ct.duration_s > 0
-        LIMIT 2 FOR SHARE`, [userId, activity.date]);
+        AND ${running} AND ${trainingActivityTimestamp} >= ?
+        AND ${trainingActivityTimestamp} < DATE_ADD(?, INTERVAL 1 DAY) AND ct.distance_m > 0 AND ct.duration_s > 0
+        LIMIT 2 FOR SHARE`, [userId, activity.date, activity.date]);
       if (matching.length !== 1 || matching[0].id !== activityId) return null;
     } else if (session.version !== version) {
       throw conflict('Refresh this plan before linking an activity', 'TRAINING_PLAN_VERSION_CONFLICT');

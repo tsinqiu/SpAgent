@@ -50,24 +50,19 @@
         <button type="button" :aria-pressed="chatMode === 'advice'" @click="chatMode = 'advice'">日常问答</button>
       </div>
 
-      <CoachPlanAgent v-show="chatMode === 'plan'" />
+      <CoachPlanAgent v-show="chatMode === 'plan'" ref="planAgent" :weekly-review-week="weeklyReviewWeek" />
       <template v-if="chatMode === 'advice'">
-
-      <StateBlock
-        v-if="aiLoading"
-        title="正在连接教练"
-        message="正在确认训练建议服务是否可用。"
-      />
-      <StateBlock
-        v-else-if="aiError && messages.length === 0"
-        title="教练暂时不可用"
-        message="连接暂时不可用，稍后再试一次。"
-        action-label="重试"
-        tone="danger"
-        @action="loadCoach"
-      />
-
-      <template v-else>
+        <StateBlock
+          v-if="aiError && messages.length === 0"
+          title="模型状态暂时无法读取"
+          message="可以发送问题，也可以重试读取模型状态。"
+          action-label="重试"
+          tone="danger"
+          @action="loadAiStatus"
+        />
+        <p class="soft-note">
+          启用在线问答时，会使用本轮问题及近期运动、恢复摘要。
+        </p>
         <div v-if="messages.length === 0" class="chat-empty-state">
           <strong>从一个问题开始</strong>
           <p>你可以让教练把训练、恢复和目标拆成下一次可执行安排。</p>
@@ -76,9 +71,16 @@
           <TransitionGroup name="msg">
             <article v-for="message in messages" :key="message.id" class="chat-message" :class="message.role">
               <div class="chat-avatar">{{ message.role === 'user' ? userInitial : '教练' }}</div>
-              <div class="chat-bubble"><p>{{ message.content }}</p></div>
+              <div class="chat-bubble">
+                <p>{{ message.content }}</p>
+                <button v-if="message.planPrompt" class="secondary-link chat-plan-action" type="button" @click="continueInPlan(message.planPrompt)">带到计划助手</button>
+                <small v-if="message.ai">
+                  {{ adviceSource(message.ai) }}
+                  <template v-if="message.ai.contextSignals?.asOf"> · 数据截至 {{ message.ai.contextSignals.asOf }}</template>
+                </small>
+              </div>
             </article>
-            <article v-if="sending" key="typing" class="chat-message assistant">
+            <article v-if="sending" key="typing" class="chat-message assistant" role="status" aria-label="正在准备回复">
               <div class="chat-avatar">教练</div>
               <div class="chat-bubble typing"><span></span><span></span><span></span></div>
             </article>
@@ -93,15 +95,15 @@
           <textarea
             v-model.trim="draft"
             rows="1"
+            aria-label="日常问答"
             placeholder="问问今天怎么练、如何恢复或下一次安排……"
-            @keydown.enter.exact.prevent="submit"
+            @keydown.enter.exact="submitFromKeyboard"
           ></textarea>
           <button class="send-btn" type="submit" :disabled="sending || !draft" aria-label="发送">
             <Send :size="18" />
           </button>
         </form>
-        <p v-if="chatError" class="form-error">建议生成失败，请稍后重试。</p>
-      </template>
+        <p v-if="chatError" class="form-error" role="alert">建议生成失败，草稿可重新发送。</p>
       </template>
     </section>
 
@@ -195,8 +197,8 @@
             <small>{{ recommendationMeta(item).reason }} · {{ recommendationMeta(item).intensity }}</small>
           </div>
           <button class="course-plan-btn" type="button" @click="ask(coursePrompt(item))">
-            <Check :size="15" />
-            加入
+            <Send :size="15" aria-hidden="true" />
+            询问教练
           </button>
         </article>
       </div>
@@ -207,6 +209,7 @@
 <script setup>
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { Check, Send } from '@lucide/vue'
+import { useRoute } from 'vue-router'
 
 import StateBlock from '@/components/StateBlock.vue'
 import CoachPlanAgent from '@/components/CoachPlanAgent.vue'
@@ -219,6 +222,12 @@ import {
 } from '@/services/ai'
 import { getExploreRecommendations } from '@/services/explore'
 import { authSession } from '@/stores/authStore'
+
+const route = useRoute()
+const weeklyReviewWeek = computed(() => {
+  const week = route.query.weeklyReview
+  return typeof week === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(week) ? week : ''
+})
 
 const quickPrompts = ['今天怎么练？', '恢复怎么安排？', '下一次跑步怎么跑？', '比赛配速建议']
 const feedbackOptions = [
@@ -254,6 +263,9 @@ const chatError = ref('')
 const feedbackMessage = ref('')
 const readinessMessage = ref('')
 const messageListRef = ref(null)
+const planAgent = ref(null)
+let nextMessageId = 0
+let failedMessage = null
 const readinessForm = ref({
   readinessScore: 3,
   muscleSoreness: 'none',
@@ -265,7 +277,10 @@ const readinessForm = ref({
 const userInitial = computed(() => (authSession.user?.username || '我').slice(0, 1).toUpperCase())
 const modelStatus = computed(() => {
   if (aiLoading.value) return { label: '连接中', fallback: true }
-  if (modelHealth.value?.status === 'ok') return { label: '教练在线', fallback: false }
+  if (modelHealth.value?.status === 'ok' && modelHealth.value.activeProvider === 'rules') {
+    return { label: '本地规则', fallback: true }
+  }
+  if (modelHealth.value?.status === 'ok') return { label: 'DeepSeek 已配置', fallback: false }
   return { label: '基础建议', fallback: true }
 })
 const mlInsight = computed(() => dailyBrief.value?.ml || null)
@@ -338,7 +353,7 @@ function recommendationMeta(item) {
 }
 
 function coursePrompt(item) {
-  return `把「${item.title}」加入今日计划，结合我的恢复状态给出强度、时长和配速安排。`
+  return `结合我的恢复情况，怎样安排「${item.title}」的时长和强度？`
 }
 
 function scrollToBottom() {
@@ -393,18 +408,44 @@ async function ask(text) {
   await submit()
 }
 
+function adviceSource(ai) {
+  if (ai.reason === 'urgent_safety') return '安全提示'
+  return ai.provider === 'deepseek' ? 'DeepSeek' : '本地规则'
+}
+
+function continueInPlan(text) {
+  planAgent.value?.setDraft(text)
+  chatMode.value = 'plan'
+}
+
+function submitFromKeyboard(event) {
+  if (event.isComposing || event.keyCode === 229) return
+  event.preventDefault()
+  void submit()
+}
+
 async function submit() {
   const content = draft.value.trim()
   if (!content || sending.value) return
-  messages.value.push({ id: Date.now(), role: 'user', content })
+  const sameMessage = failedMessage?.content === content && messages.value.at(-1)?.id === failedMessage.id
+  const prompt = sameMessage ? failedMessage : { id: ++nextMessageId, role: 'user', content }
+  if (!sameMessage) messages.value.push(prompt)
+  failedMessage = null
   draft.value = ''
   sending.value = true
   chatError.value = ''
   scrollToBottom()
   try {
     const envelope = await sendAiMessage(content)
-    messages.value.push({ id: Date.now() + 1, role: 'assistant', content: envelope.data?.content || '暂时没有生成有效建议。' })
+    messages.value.push({
+      id: ++nextMessageId, role: 'assistant',
+      content: envelope.data?.content || '暂时没有生成有效建议。',
+      ai: envelope.meta?.ai,
+      planPrompt: envelope.data?.nextStep === 'plan_assistant' ? content : '',
+    })
   } catch (error) {
+    failedMessage = prompt
+    if (!draft.value) draft.value = content
     chatError.value = error instanceof Error ? error.message : '建议生成失败，请稍后重试。'
   } finally {
     sending.value = false

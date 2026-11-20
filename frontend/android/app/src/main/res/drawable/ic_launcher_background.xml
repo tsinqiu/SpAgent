@@ -4,7 +4,7 @@
     android:height="108dp"
     android:viewportHeight="108"
     android:viewportWidth="108">
-    <!-- MotionCare simple route launcher background -->
+    <!-- SpAgent simple route launcher background -->
     <path
         android:fillColor="#2e681d"
         android:pathData="M0,0h108v108h-108z" />

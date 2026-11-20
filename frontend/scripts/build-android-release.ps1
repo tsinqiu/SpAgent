@@ -10,10 +10,10 @@ function Assert-LastExitCode($commandName) {
 }
 
 foreach ($name in @(
-  'MOTIONCARE_RELEASE_STORE_FILE',
-  'MOTIONCARE_RELEASE_STORE_PASSWORD',
-  'MOTIONCARE_RELEASE_KEY_ALIAS',
-  'MOTIONCARE_RELEASE_KEY_PASSWORD'
+  'SPAGENT_RELEASE_STORE_FILE',
+  'SPAGENT_RELEASE_STORE_PASSWORD',
+  'SPAGENT_RELEASE_KEY_ALIAS',
+  'SPAGENT_RELEASE_KEY_PASSWORD'
 )) {
   if (-not [Environment]::GetEnvironmentVariable($name, 'Process')) {
     throw "$name is required for release signing."

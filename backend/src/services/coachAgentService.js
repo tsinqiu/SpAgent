@@ -5,6 +5,7 @@ const trainingPlanService = require('./trainingPlanService');
 const { planTurn } = require('./coachAgent');
 
 const pageSize = 40;
+const inFlightMessages = new Map();
 const cardColumns = `
   a.id AS actionId, a.action_type AS actionType, a.payload_json AS actionPayload, a.status AS storedStatus,
   CASE WHEN a.status = 'proposed' AND a.expires_at <= UTC_TIMESTAMP(3) THEN 'expired' ELSE a.status END AS actionStatus,
@@ -97,17 +98,32 @@ async function replay(query, userId, conversationId, clientMessageId, text) {
   return { messages: rows.map(messageView) };
 }
 
-async function postMessage(userId, conversationId, { clientMessageId, message }) {
+async function latestAssistantMessage(query, userId, conversationId) {
+  const [row] = await query(`
+    SELECT m.id, m.cards_json AS payload FROM AgentMessages m
+    JOIN AgentConversations c ON c.id = m.conversation_id
+    WHERE c.user_id = ? AND m.conversation_id = ? AND m.role = 'assistant'
+    ORDER BY m.id DESC LIMIT 1`, [userId, conversationId]);
+  return row;
+}
+
+async function persistMessage(userId, conversationId, { clientMessageId, message }) {
   await requireConversation(db.query, userId, conversationId);
   const prior = await replay(db.query, userId, conversationId, clientMessageId, message);
   if (prior) return prior;
-  const turn = await planTurn(message, userId);
+  const previous = await latestAssistantMessage(db.query, userId, conversationId);
+  const pending = previous ? decode(previous.payload).clarification : null;
+  const turn = await planTurn(message, userId, pending);
 
   return db.transaction(async connection => {
     const query = async (sql, args) => (await connection.execute(sql, args))[0];
     const conversation = await requireConversation(query, userId, conversationId, true);
     const saved = await replay(query, userId, conversationId, clientMessageId, message);
     if (saved) return saved;
+    const current = await latestAssistantMessage(query, userId, conversationId);
+    if (previous?.id !== current?.id) {
+      throw new ApiError(409, 'A reply was added to this conversation. Please retry.', 'AGENT_CONVERSATION_UPDATED');
+    }
 
     await query(`
       INSERT INTO AgentMessages (conversation_id, client_message_id, role, content, cards_json)
@@ -115,7 +131,7 @@ async function postMessage(userId, conversationId, { clientMessageId, message })
     const assistant = await query(`
       INSERT INTO AgentMessages (conversation_id, client_message_id, role, content, cards_json)
       VALUES (?, ?, 'assistant', ?, ?)`,
-    [conversationId, clientMessageId, turn.content, JSON.stringify({ cards: turn.cards, meta: turn.meta })]);
+    [conversationId, clientMessageId, turn.content, JSON.stringify({ cards: turn.cards, meta: turn.meta, clarification: turn.clarification })]);
     if (turn.proposal) {
       await query(`
         INSERT INTO AgentActions (conversation_id, user_id, assistant_message_id, action_type, payload_json, expires_at)
@@ -129,6 +145,20 @@ async function postMessage(userId, conversationId, { clientMessageId, message })
     );
     return replay(query, userId, conversationId, clientMessageId, message);
   });
+}
+
+async function postMessage(userId, conversationId, input) {
+  const key = `${userId}:${conversationId}:${input.clientMessageId}`;
+  const existing = inFlightMessages.get(key);
+  if (existing) {
+    if (existing.message !== input.message) {
+      throw new ApiError(409, 'This message ID was already used', 'AGENT_MESSAGE_CONFLICT');
+    }
+    return existing.result;
+  }
+  const result = persistMessage(userId, conversationId, input).finally(() => inFlightMessages.delete(key));
+  inFlightMessages.set(key, { message: input.message, result });
+  return result;
 }
 
 async function findAction(connection, userId, actionId) {

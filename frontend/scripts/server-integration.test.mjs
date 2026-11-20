@@ -20,6 +20,7 @@ const [
   packageJson,
   httpSource,
   syncSource,
+  protectedPhotoSource,
   activityCardSource,
   activityDetailSource,
   shoesSource,
@@ -32,6 +33,7 @@ const [
   json('package.json'),
   source('src/services/http.js'),
   source('src/services/sync.js'),
+  source('src/components/ProtectedPhoto.vue'),
   source('src/components/ActivityCard.vue'),
   source('src/views/ActivityDetail.vue'),
   source('src/views/Shoes.vue'),
@@ -57,12 +59,14 @@ test('web production builds default to the same-origin API prefix', () => {
 
 test('media URLs reuse the configured API base instead of hardcoded localhost', () => {
   assert.match(httpSource, /export\s+function\s+resolveMediaUrl/)
-  assert.doesNotMatch(activityCardSource, /localhost:808[09]/)
-  assert.doesNotMatch(activityDetailSource, /localhost:808[09]/)
-  assert.doesNotMatch(shoesSource, /localhost:808[09]/)
-  assert.match(activityCardSource, /import\s+\{\s*resolveMediaUrl\s*\}\s+from\s+['"]@\/services\/http['"]/)
-  assert.match(activityDetailSource, /import\s+\{\s*apiClient,\s*resolveMediaUrl\s*\}\s+from\s+['"]@\/services\/http['"]/)
-  assert.match(shoesSource, /import\s+\{\s*apiClient,\s*resolveMediaUrl\s*\}\s+from\s+['"]@\/services\/http['"]/)
+  for (const consumer of [activityCardSource, activityDetailSource, shoesSource]) {
+    assert.doesNotMatch(consumer, /localhost:808[09]/)
+    assert.match(consumer, /<ProtectedPhoto\b/)
+  }
+  assert.match(protectedPhotoSource, /import\s+\{\s*apiClient,\s*resolveMediaUrl\s*\}\s+from\s+['"]@\/services\/http['"]/)
+  assert.match(protectedPhotoSource, /apiClient\.get\([^\n]*\$\{collection\}\/\$\{encodeURIComponent\(id\)\}\/\$\{filename\}/)
+  assert.match(protectedPhotoSource, /responseType:\s*['"]blob['"]/)
+  assert.match(protectedPhotoSource, /URL\.revokeObjectURL\(/)
 })
 
 test('sync service names only implemented Garmin provider', () => {
@@ -75,7 +79,7 @@ test('Android sync requires an explicitly configured server API', () => {
   assert.match(packageJson.scripts['android:sync'] || '', /sync-android-server\.ps1/)
   assert.match(androidSyncScript, /if\s*\(-not \$env:VITE_NATIVE_API_BASE_URL\)/)
   assert.match(androidSyncScript, /VITE_NATIVE_API_BASE_URL is required/)
-  assert.doesNotMatch(androidSyncScript, /D:\\MotionCare|Get-Content/)
+  assert.doesNotMatch(androidSyncScript, /D:\\SpAgent|Get-Content/)
   assert.match(androidSyncScript, /\$env:VITE_API_BASE_URL\s*=\s*\$env:VITE_NATIVE_API_BASE_URL/)
   assert.match(androidSyncScript, /npm run build/)
   assert.match(androidSyncScript, /npx cap sync android/)

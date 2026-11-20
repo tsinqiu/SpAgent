@@ -2,6 +2,7 @@ const createApp = require('./app');
 const config = require('./config');
 const db = require('./db');
 const { startServer } = require('./serverStartup');
+const syncService = require('./services/syncService');
 
 const app = createApp();
 const server = startServer({
@@ -9,6 +10,7 @@ const server = startServer({
   host: config.server.host,
   port: config.server.port
 });
+const syncWorker = syncService.startWorker();
 
 const SHUTDOWN_TIMEOUT_MS = 30000;
 let shuttingDown = false;
@@ -40,7 +42,7 @@ async function shutdown(signal) {
   timer.unref?.();
 
   try {
-    await closeServer();
+    await Promise.all([closeServer(), syncWorker.stop()]);
     await db.closePool();
     clearTimeout(timer);
     process.exit(0);

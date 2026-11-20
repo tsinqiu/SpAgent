@@ -413,7 +413,7 @@ POST   /api/community/posts/:id/share
 ```
 
 `GET /api/community/posts` returns paged posts. When a post is linked to an
-activity, the response also includes the activity summary used by the MotionCare
+activity, the response also includes the activity summary used by the SpAgent
 feed:
 
 ```json
@@ -510,7 +510,7 @@ POST /api/ml/running-prediction
 GET  /api/ml/performance-profile
 ```
 
-MotionCare currently has three local ML/modelized outputs:
+SpAgent currently has three local ML/modelized outputs:
 
 - `running-v1`: Python `joblib` model for single-run training-load level and fatigue-risk prediction.
 - `coach-v1`: coach readiness model with rule fallback, personal percentile features, weather/recovery safety constraints, and optional local `coach_model.joblib`.

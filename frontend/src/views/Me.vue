@@ -95,7 +95,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { Download as DownloadIcon, Footprints, LogOut, Moon, RefreshCw, Settings, ShieldCheck, Sun } from '@lucide/vue'
+import { CalendarDays, Download as DownloadIcon, Footprints, LogOut, Moon, RefreshCw, Settings, ShieldCheck, Sun } from '@lucide/vue'
 import { useRouter } from 'vue-router'
 
 import StateBlock from '@/components/StateBlock.vue'
@@ -112,6 +112,7 @@ const personalLinks = [
   { to: '/me/shoes', label: '跑鞋', description: '记录跑鞋里程与使用状态', icon: Footprints },
   { to: '/me/security', label: '账号安全', description: '查看登录保护和当前账号状态', icon: ShieldCheck },
   { to: '/me/settings', label: '个人设置', description: '调整资料、偏好与服务配置', icon: Settings },
+  { to: '/me/training-preferences', label: '训练偏好', description: '设置跑步目标、训练日和提醒', icon: CalendarDays },
 ]
 
 function handleLogout() {

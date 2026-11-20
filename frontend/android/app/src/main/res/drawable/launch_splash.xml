@@ -4,7 +4,7 @@
     android:height="320dp"
     android:viewportWidth="320"
     android:viewportHeight="320">
-    <!-- MotionCare launch mark -->
+    <!-- SpAgent launch mark -->
     <path
         android:fillColor="#15b66a"
         android:pathData="M0,0h320v320h-320z" />

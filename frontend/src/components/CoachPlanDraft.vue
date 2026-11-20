@@ -113,6 +113,6 @@ const workouts = week => week.days.filter(day => day.title)
   font-weight: 800;
 }
 .plan-draft__actions button:last-child,
-.plan-draft__link { background: var(--app-green); color: white; border-color: var(--app-green); }
+.plan-draft__link { background: #078452; color: white; border-color: #078452; }
 .plan-draft__actions button:disabled { opacity: 0.6; }
 </style>

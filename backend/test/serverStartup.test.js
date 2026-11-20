@@ -37,7 +37,7 @@ test('server startup reports listen errors without logging a false success', () 
   });
 
   assert.deepEqual(output.info, []);
-  assert.deepEqual(output.errors, ['Failed to start MotionCare API: 127.0.0.1:8089 is already in use']);
+  assert.deepEqual(output.errors, ['Failed to start SpAgent API: 127.0.0.1:8089 is already in use']);
   assert.equal(startupErrors[0].code, 'EADDRINUSE');
 });
 
@@ -52,6 +52,6 @@ test('server startup logs the listening address only after success', () => {
 
   startServer({ app, host: '127.0.0.1', port: 8089, logger: output.logger });
 
-  assert.deepEqual(output.info, ['MotionCare API listening on http://127.0.0.1:8089']);
+  assert.deepEqual(output.info, ['SpAgent API listening on http://127.0.0.1:8089']);
   assert.deepEqual(output.errors, []);
 });

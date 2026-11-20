@@ -18,6 +18,23 @@ export const authSession = reactive({
 
 export const isAuthenticated = computed(() => Boolean(getAuthToken() && authSession.user))
 
+const authErrorMessages = new Map([
+  ['INVALID_CREDENTIALS', '邮箱或密码不正确。'],
+  ['USER_INACTIVE', '该账号当前不可用。'],
+  ['LOGIN_BLOCKED', '登录尝试次数过多，请稍后重试。'],
+  ['AUTH_RATE_LIMITED', '操作过于频繁，请稍后重试。'],
+  ['EMAIL_ALREADY_REGISTERED', '该邮箱已注册。'],
+  ['USERNAME_ALREADY_REGISTERED', '该用户名已被使用。'],
+])
+
+function authErrorMessage(error, fallback) {
+  const status = error?.status ?? error?.response?.status
+  if (status >= 500 || ['ERR_NETWORK', 'ECONNABORTED', 'ETIMEDOUT'].includes(error?.code)) {
+    return '暂时无法连接服务，请稍后重试。'
+  }
+  return authErrorMessages.get(error?.code) || fallback
+}
+
 export function hasAuthToken() {
   return Boolean(getAuthToken())
 }
@@ -60,7 +77,7 @@ export async function initAuthSession({ force = false } = {}) {
     return Boolean(user)
   } catch (error) {
     resetAuthState()
-    authSession.error = error instanceof Error ? error.message : '登录状态已失效'
+    authSession.error = authErrorMessage(error, '登录状态已失效，请重新登录。')
     return false
   } finally {
     authSession.loading = false
@@ -79,7 +96,7 @@ async function finishAuth(request) {
     setUser(result.user)
     return result.user
   } catch (error) {
-    authSession.error = error instanceof Error ? error.message : '认证失败'
+    authSession.error = authErrorMessage(error, '认证失败，请检查输入后重试。')
     throw error
   } finally {
     authSession.loading = false

@@ -170,9 +170,12 @@
           v-if="post.imageUrl"
           class="community-media community-media--image"
           type="button"
-          @click="openImagePreview(post.imageUrl, post.content || formatPostTitle(post))"
+          aria-label="查看动态图片"
+          @click="openImagePreview($event.currentTarget.querySelector('img')?.src, post.content || formatPostTitle(post))"
         >
-          <img :src="post.imageUrl" alt="" />
+          <ProtectedPhoto kind="community" :id="post.id" :path="post.imagePath" lazy>
+            <ImageIcon :size="24" aria-hidden="true" />
+          </ProtectedPhoto>
         </button>
         <RoutePreview
           v-else-if="post.activityId && routePointsForPost(post).length"
@@ -229,6 +232,7 @@ import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import {
   Activity,
   Heart,
+  Image as ImageIcon,
   MapPin,
   MessageCircle,
   Plus,
@@ -242,6 +246,7 @@ import {
 import { showToast } from 'vant'
 
 import RoutePreview from '@/components/RoutePreview.vue'
+import ProtectedPhoto from '@/components/ProtectedPhoto.vue'
 import StateBlock from '@/components/StateBlock.vue'
 import { getActivities, getTrackPoints } from '@/services/activities'
 import {
@@ -476,6 +481,7 @@ async function loadActivityOptions() {
 }
 
 function openImagePreview(url, alt = '') {
+  if (!url) return
   previewImage.value = { url, alt }
   document.body.classList.add('lightbox-open')
 }

@@ -123,11 +123,11 @@ function handleShellBack(event) {
 }
 
 onMounted(() => {
-  window.addEventListener('motioncare:nav-back', handleShellBack)
+  window.addEventListener('spagent:nav-back', handleShellBack)
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('motioncare:nav-back', handleShellBack)
+  window.removeEventListener('spagent:nav-back', handleShellBack)
 })
 </script>
 

@@ -10,7 +10,7 @@ function createDashboardRouter(activityService = defaultActivityService, authSer
   const requireAuth = authenticate(authService);
 
   router.get('/dashboard/overview', requireAuth, asyncHandler((req, res) =>
-    sendCachedStats(req, res, () => activityService.getDashboardOverview(parseDashboardFilters(req.query, req.user)))
+    sendCachedStats(req, res, parseDashboardFilters(req.query, req.user), filters => activityService.getDashboardOverview(filters))
   ));
 
   router.get('/dashboard/health', requireAuth, asyncHandler(async (req, res) => {

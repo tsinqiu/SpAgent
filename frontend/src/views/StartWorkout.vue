@@ -2,8 +2,9 @@
   <div class="record-workout-page" :style="{ '--sport-color': selectedSport.color }">
     <section ref="recordingPanelRef" class="record-dashboard">
       <header class="record-dashboard__top">
-        <button class="record-icon-button" type="button" aria-label="定位功能" @click="showLocationPlaceholder">
-          <MapPin :size="24" aria-hidden="true" />
+        <button class="record-icon-button" type="button" aria-label="手动添加运动" title="手动添加运动" :disabled="sportLocked || busy" @click="$emit('add-manual')">
+          <FilePlus2 :size="16" aria-hidden="true" />
+          <span>补记</span>
         </button>
 
         <div class="sport-select" :class="{ disabled: sportLocked, open: sportMenuOpen }">
@@ -68,7 +69,7 @@
           <Footprints :size="24" aria-hidden="true" />
           <small v-if="selectedShoeName">{{ selectedShoeName }}</small>
         </button>
-        <button class="start-action" type="button" :disabled="busy || saved" @click="toggleRecording">
+        <button class="start-action" type="button" :disabled="busy" @click="toggleRecording">
           {{ startButtonText }}
         </button>
         <button class="round-side-action" type="button" :disabled="targetControlsLocked" aria-label="选择目标" @click="openTargetPanel">
@@ -200,7 +201,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { showToast } from 'vant'
-import { ChevronDown, ChevronLeft, Footprints, MapPin, Target } from '@lucide/vue'
+import { ChevronDown, ChevronLeft, FilePlus2, Footprints, Target } from '@lucide/vue'
 
 import { startSportTypes } from '@/constants/sports'
 import {
@@ -215,7 +216,7 @@ import { apiClient } from '@/services/http'
 import { startNativeMotionLocation } from '@/services/nativeMotionLocation'
 import { formatClockDuration, formatDistance, formatPaceSeconds, formatSpeed } from '@/utils/formatters'
 
-const emit = defineEmits(['recording-state-change'])
+defineEmits(['add-manual'])
 
 const SPORT_TARGETS = {
   running: {
@@ -339,7 +340,7 @@ const sportLocked = computed(() => Boolean(workout.value))
 const targetControlsLocked = computed(() => Boolean(workout.value) || busy.value)
 const startButtonText = computed(() => {
   if (running.value) return '暂停'
-  if (elapsed.value) return '继续'
+  if (workout.value?.status === 'paused' || elapsed.value) return '继续'
   return '开始'
 })
 const targetConfig = computed(() => SPORT_TARGETS[selectedSport.value.type] || SPORT_TARGETS.other)
@@ -483,10 +484,6 @@ function selectDraftTarget(option) {
   draftTargetKey.value = option.key
   draftTargetValue.value = option.value
   customTargetInput.value = ''
-}
-
-function showLocationPlaceholder() {
-  showToast('定位功能后续接入')
 }
 
 function confirmTarget() {
@@ -772,11 +769,11 @@ async function toggleRecording() {
     if (running.value) {
       await stopLocationWatch()
       await flushTrackPoints()
-      await pauseWorkout(current.id)
+      workout.value = await pauseWorkout(current.id)
       running.value = false
       locationStatus.value = '已暂停'
     } else {
-      if (elapsed.value > 0) await resumeWorkout(current.id)
+      if (current.status === 'paused') workout.value = await resumeWorkout(current.id)
       running.value = true
       await startLocationWatch()
       scrollActiveRecorderIntoView()
@@ -839,6 +836,7 @@ async function cancel() {
 
 function resetWorkoutState() {
   workout.value = null
+  locationStatus.value = '等待定位'
   elapsed.value = 0
   distanceM.value = 0
   trackPoints.value = []
@@ -856,10 +854,6 @@ watch(running, (active) => {
       elapsed.value += 1
     }, 1000)
   }
-})
-
-watch(workout, (current) => {
-  emit('recording-state-change', Boolean(current))
 })
 
 onBeforeUnmount(() => {
@@ -927,6 +921,13 @@ watch(draftTargetMode, () => {
   display: inline-grid;
   place-items: center;
   border-radius: 16px;
+}
+
+.record-icon-button {
+  align-content: center;
+  gap: 2px;
+  font-size: 11px;
+  line-height: 1;
 }
 
 .sport-select {

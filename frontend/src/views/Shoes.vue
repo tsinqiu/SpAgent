@@ -46,7 +46,7 @@
           <div>
             <p class="overline">装备健康</p>
             <h3>当前还没有绑定跑鞋</h3>
-            <p>添加常用跑鞋后，MotionCare 会按训练记录追踪里程、磨损和使用状态。</p>
+            <p>添加常用跑鞋后，SpAgent 会按训练记录追踪里程、磨损和使用状态。</p>
           </div>
         </div>
         <div class="shoe-empty-track">
@@ -69,7 +69,7 @@
           :class="{ retired: s.isRetired, selected: selectedShoe?.id === s.id }"
           @click="selectShoe(s)"
         >
-          <img v-if="s.photoPath" :src="photoUrl(s.photoPath)" class="shoe-photo" alt="" />
+          <ProtectedPhoto v-if="s.photoPath" kind="shoe" :id="s.id" :path="s.photoPath" class="shoe-photo" lazy />
           <div class="shoe-info">
             <strong>{{ s.name }}</strong>
             <span v-if="s.brand || s.model" class="shoe-detail">{{ [s.brand, s.model].filter(Boolean).join(' ') }}</span>
@@ -123,7 +123,8 @@
             <label>初始里程 (km) <input v-model.number="editForm.initialDistanceKm" type="number" step="1" min="0" /></label>
             <label>价格 (元) <input v-model.number="editForm.price" type="number" step="0.01" min="0" /></label>
             <label>照片 <input type="file" accept="image/*" @change="onEditPhotoChange" /></label>
-            <img v-if="editPhotoPreview || editForm.photoPath" :src="editPhotoPreview || photoUrl(editForm.photoPath)" class="edit-photo-preview" />
+            <img v-if="editPhotoPreview" :src="editPhotoPreview" class="edit-photo-preview" alt="跑鞋照片预览" />
+            <ProtectedPhoto v-else-if="editForm.photoPath" kind="shoe" :id="editTarget.id" :path="editForm.photoPath" class="edit-photo-preview" alt="跑鞋照片" />
             <div class="modal-actions">
               <button type="submit" class="primary-link" :disabled="isSavingEdit">{{ isSavingEdit ? '保存中' : '保存' }}</button>
               <button type="button" @click="closeEdit">取消</button>
@@ -139,9 +140,10 @@
 import { computed, ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Footprints } from '@lucide/vue'
-import { apiClient, resolveMediaUrl } from '@/services/http'
+import { apiClient } from '@/services/http'
 import { normalizeActivity } from '@/services/activities'
 import ActivityCard from '@/components/ActivityCard.vue'
+import ProtectedPhoto from '@/components/ProtectedPhoto.vue'
 import StateBlock from '@/components/StateBlock.vue'
 
 const router = useRouter()
@@ -182,10 +184,6 @@ async function load() {
   } finally {
     loading.value = false
   }
-}
-
-function photoUrl(path) {
-  return resolveMediaUrl(path)
 }
 
 function displayKm(s) {

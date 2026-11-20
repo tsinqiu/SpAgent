@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="MotionCare route runner">
-  <title>MotionCare route runner</title>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="SpAgent route runner">
+  <title>SpAgent route runner</title>
   <rect width="512" height="512" fill="#2e681d"/>
   <circle cx="256" cy="256" r="220" fill="#2e681d"/>
   <path fill="none" stroke="#15b66a" stroke-width="38" stroke-linecap="round" d="M82 364c68-98 151-148 249-148 51 0 95 14 132 41"/>

@@ -34,7 +34,7 @@ const [
   source('src/assets/app.css'),
 ])
 
-test('Capacitor launch screen is configured as a MotionCare green runner splash', () => {
+test('Capacitor launch screen is configured as a SpAgent green runner splash', () => {
   assert.ok(packageJson.dependencies['@capacitor/splash-screen'])
   assert.match(capacitorConfig, /reference types=["']@capacitor\/splash-screen["']/)
   assert.match(capacitorConfig, /SplashScreen:\s*\{[\s\S]*?launchAutoHide:\s*false/)
@@ -53,12 +53,12 @@ test('Android launch theme uses a branded vector splash resource', () => {
   assert.match(stylesXml, /AppTheme\.NoActionBarLaunch[\s\S]*@drawable\/launch_splash/)
   assert.match(splashDrawable, /<vector[\s\S]*android:width="320dp"/)
   assert.match(splashDrawable, /#15b66a/)
-  assert.match(splashDrawable, /MotionCare/)
+  assert.match(splashDrawable, /SpAgent/)
 })
 
 test('web root includes a branded startup fallback before JavaScript boots', () => {
   assert.match(indexHtml, /<div id="app">\s*<div class="boot-splash"/)
-  assert.match(indexHtml, /MotionCare/)
+  assert.match(indexHtml, /SpAgent/)
   assert.match(indexHtml, /训练数据正在准备/)
   assert.match(appCss, /\.boot-splash\s*\{[\s\S]*?background:\s*var\(--app-green\)/)
   assert.match(appCss, /\.boot-splash__mark\s*\{[\s\S]*?border-radius:\s*50%/)

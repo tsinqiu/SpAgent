@@ -1,5 +1,5 @@
 /* =============================================================================
-   MotionCare · app.css
+   SpAgent · app.css
    Mobile-app layer, loaded AFTER styles.css so these tokens/overrides win.
    Sections:
      1. Extended design tokens (spacing / radius / shadow / type / layout)
@@ -8,7 +8,7 @@
      4. Surface softening (cards / metrics / chips / state block / links)
      5. Motion (page / card / message / press) + reduced-motion guard
      6. Phone-container responsive layout
-   The look stays MotionCare's own: calm light ground, one green accent,
+   The look stays SpAgent's own: calm light ground, one green accent,
    generous whitespace — Vant supplies behaviour, not the brand.
    ============================================================================= */
 
@@ -69,7 +69,7 @@
 }
 
 /* 2. Vant theme bridge ------------------------------------------------------- */
-/* Light: map Vant primitives onto MotionCare's palette. */
+/* Light: map Vant primitives onto SpAgent's palette. */
 :root {
   --van-primary-color: var(--green);
   --van-success-color: var(--green);
@@ -114,7 +114,7 @@
   --van-action-sheet-item-text-color: var(--text);
 }
 
-/* Night: MotionCare already flips these primitives via data-theme; keep Vant
+/* Night: SpAgent already flips these primitives via data-theme; keep Vant
    in step so NavBar / Tabbar / Popup / Field read correctly in the dark. */
 html[data-theme="night"] {
   --van-primary-color: var(--green);
@@ -559,6 +559,11 @@ html[data-theme="night"] {
     border: 1px solid var(--border);
     box-shadow: var(--shadow-lg);
   }
+}
+
+@media (min-width: 900px) {
+  .phone-frame--training { width: min(100%, 760px); }
+  .phone-frame--training .page-frame { padding-inline: 28px; }
 }
 
 .app-navbar.van-nav-bar {
@@ -1684,46 +1689,42 @@ html[data-theme="night"] {
 .secondary-link small { color: var(--muted); }
 
 /* 5. Motion ------------------------------------------------------------------ */
-.page-enter-active,
-.page-leave-active { transition: opacity 180ms ease, transform 180ms ease; }
-.page-enter-from { opacity: 0; transform: translateY(6px); }
-.page-leave-to { opacity: 0; transform: translateY(-4px); }
-
-@keyframes card-in {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: none; }
+:where(.app-viewport, .training-sheet-dialog) :where(a, button, [role='button'], [role='tab'], summary) {
+  touch-action: manipulation;
 }
-.page-stack > * {
-  animation: card-in 320ms ease both;
+
+:where(.app-viewport, .training-sheet-dialog) :where(a, button, [role='button'], [role='tab'], summary):focus-visible {
+  outline: 2px solid var(--green-strong);
+  outline-offset: 2px;
 }
-.page-stack > *:nth-child(2) { animation-delay: 40ms; }
-.page-stack > *:nth-child(3) { animation-delay: 80ms; }
-.page-stack > *:nth-child(4) { animation-delay: 120ms; }
-.page-stack > *:nth-child(5) { animation-delay: 160ms; }
-.page-stack > *:nth-child(n + 6) { animation-delay: 200ms; }
 
-.msg-enter-active { transition: opacity 220ms ease, transform 220ms ease; }
-.msg-enter-from { opacity: 0; transform: translateY(8px); }
+.msg-enter-active { transition: opacity 140ms ease-out, transform 140ms ease-out; }
+.msg-enter-from { opacity: 0.75; transform: translateY(3px); }
 
-.primary-link:active,
-.secondary-link:active,
-.van-button:active { transform: scale(0.97); }
-.primary-link,
-.secondary-link,
-.van-button { transition: transform 120ms ease; }
+:is(.primary-link, .secondary-link, .van-button, .app-navbar-action, .app-tabbar .van-tabbar-item__icon,
+  .today-date-nav button, .today-action-grid a, .explore-entry-grid a, .coach-chat-modes button,
+  .chat-composer button, .plan-agent__composer button, .training-plan-card, .training-plan-actions button) {
+  transition: transform 140ms cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+:is(.primary-link, .secondary-link, .van-button, .app-navbar-action, .today-date-nav button, .today-action-grid a,
+  .explore-entry-grid a, .coach-chat-modes button, .chat-composer button, .plan-agent__composer button,
+  .training-plan-card, .training-plan-actions button):not(:disabled):active,
+.app-tabbar .van-tabbar-item:active .van-tabbar-item__icon {
+  transform: scale(0.97);
+  transition-duration: 0ms;
+}
 
 @media (prefers-reduced-motion: reduce) {
-  .page-enter-active,
-  .page-leave-active,
-  .page-stack > *,
   .msg-enter-active,
-  .primary-link,
-  .secondary-link,
-  .van-button,
-  .app-tabbar .van-tabbar-item__icon {
+  :is(.primary-link, .secondary-link, .van-button, .app-navbar-action, .app-tabbar .van-tabbar-item__icon,
+    .today-date-nav button, .today-action-grid a, .explore-entry-grid a, .coach-chat-modes button,
+    .chat-composer button, .plan-agent__composer button, .training-plan-card, .training-plan-actions button) {
     animation: none !important;
     transition: none !important;
+    transform: none !important;
   }
+  .chat-bubble.typing span { animation: none !important; }
 }
 
 /* 6. Phone-container responsive layout -------------------------------------- */

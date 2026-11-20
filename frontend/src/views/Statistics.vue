@@ -13,21 +13,14 @@
           {{ item.label }}
         </button>
       </div>
-      <div class="trend-range-row" aria-label="趋势时间范围">
-        <button type="button" aria-label="上一周期">
-          <ChevronLeft :size="22" aria-hidden="true" />
-        </button>
-        <strong>{{ rangeLabel }}</strong>
-        <button type="button" aria-label="下一周期">
-          <ChevronRight :size="22" aria-hidden="true" />
-        </button>
-      </div>
-      <div class="trend-range-pills">
+      <strong class="trend-range-label">{{ rangeLabel }}</strong>
+      <div class="trend-range-pills" role="group" aria-label="趋势时间范围">
         <button
           v-for="item in ranges"
           :key="item.value"
           type="button"
           :class="{ active: range === item.value }"
+          :aria-pressed="range === item.value"
           @click="range = item.value"
         >
           {{ item.label }}
@@ -69,8 +62,6 @@ import {
   Activity,
   BatteryCharging,
   Check,
-  ChevronLeft,
-  ChevronRight,
   Clock3,
   Flame,
   Gauge,
@@ -85,7 +76,7 @@ import {
 import ChartPanel from '@/components/ChartPanel.vue'
 import StateBlock from '@/components/StateBlock.vue'
 import { sportFilters } from '@/constants/sports'
-import { getMetricTrend } from '@/services/stats'
+import { getMetricTrends } from '@/services/stats'
 import { formatDuration, formatPaceSeconds, formatSpeed } from '@/utils/formatters'
 
 const ranges = [
@@ -118,6 +109,7 @@ const selectedMetric = ref('avg_heart_rate_bpm')
 const trendMap = ref({})
 const loading = ref(false)
 const error = ref('')
+let loadVersion = 0
 
 const availableMetrics = computed(() => metricCatalog.filter((metric) => {
   if (metric.disabled) return false
@@ -195,30 +187,23 @@ function shortDate(value) {
 }
 
 async function load() {
+  const version = ++loadVersion
   loading.value = true
   error.value = ''
   try {
-    const enabledMetrics = metricCatalog.filter((metric) => !metric.disabled)
-    const rows = await Promise.all(enabledMetrics.map(async (metric) => {
-      try {
-        const data = await getMetricTrend({
-          metric: metric.key,
-          range: range.value,
-          activity_type: activityType.value,
-        })
-        return [metric.key, data || []]
-      } catch {
-        return [metric.key, []]
-      }
-    }))
-    trendMap.value = Object.fromEntries(rows)
+    const data = await getMetricTrends({
+      range: range.value,
+      activity_type: activityType.value,
+    })
+    if (version !== loadVersion) return
+    trendMap.value = data
     if (!availableMetrics.value.some((metric) => metric.key === selectedMetric.value)) {
       selectedMetric.value = availableMetrics.value[0]?.key || 'avg_heart_rate_bpm'
     }
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : '趋势加载失败'
+  } catch {
+    if (version === loadVersion) error.value = '暂时无法读取趋势数据，请稍后重试。'
   } finally {
-    loading.value = false
+    if (version === loadVersion) loading.value = false
   }
 }
 
@@ -263,23 +248,7 @@ watch([range, activityType], load, { immediate: true })
   color: #fff;
 }
 
-.trend-range-row {
-  display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) 44px;
-  align-items: center;
-}
-
-.trend-range-row button {
-  width: 44px;
-  height: 44px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  background: transparent;
-  color: var(--text);
-}
-
-.trend-range-row strong {
+.trend-range-label {
   min-width: 0;
   color: var(--text);
   font-size: 20px;

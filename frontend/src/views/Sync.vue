@@ -36,7 +36,8 @@
       </div>
     </section>
 
-    <p v-if="notice" class="success-copy sync-toast">{{ notice }}</p>
+    <p v-if="notice" class="sync-toast" role="status">{{ notice }}</p>
+    <p v-if="syncError" class="form-error" role="alert">{{ syncError }}</p>
 
     <StateBlock
       v-if="loading"
@@ -84,16 +85,16 @@
             <button
               class="primary-link sync-action-primary"
               type="button"
-              :disabled="busy"
+              :disabled="busy || syncing"
               @click="runSync"
             >
               <RefreshCw :size="16" />
-              {{ syncing ? '同步中' : '立即同步' }}
+              {{ activeJob ? jobStatusLabel(activeJob.status) : enqueueing ? '正在创建' : '立即同步' }}
             </button>
             <button
               class="danger-link sync-action-danger"
               type="button"
-              :disabled="busy"
+              :disabled="busy || syncing"
               @click="disconnect"
             >
               解除绑定
@@ -152,7 +153,7 @@
 
           <div class="sync-form-actions">
             <p class="sync-note">凭据只用于完成连接验证，不会在页面中显示。</p>
-            <button class="primary-link sync-submit" type="submit" :disabled="busy || !canSubmit">
+            <button class="primary-link sync-submit" type="submit" :disabled="busy || syncing || !canSubmit">
               <LinkIcon :size="16" />
               {{ authorizing ? '绑定中' : '保存绑定' }}
             </button>
@@ -221,7 +222,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import {
   CheckCircle2,
   Clock3,
@@ -238,6 +239,7 @@ import {
   createSyncJob,
   disconnectGarminAccount,
   getGarminAccount,
+  getSyncJob,
   getSyncJobs,
   getSyncLogs,
 } from '@/services/sync'
@@ -265,7 +267,13 @@ const notice = ref('')
 const loading = ref(false)
 const busy = ref(false)
 const authorizing = ref(false)
-const syncing = ref(false)
+const enqueueing = ref(false)
+const syncError = ref('')
+const activeJob = computed(() => jobs.value.items.find(job => ['queued', 'running'].includes(job.status)))
+const syncing = computed(() => enqueueing.value || Boolean(activeJob.value))
+let pollTimer
+let visible = false
+let refreshVersion = 0
 
 const canSubmit = computed(() => Boolean(form.email && form.password))
 const accountInitial = computed(() => {
@@ -325,6 +333,8 @@ function syncFormFromAccount(nextAccount) {
 }
 
 async function load({ clearNotice = true } = {}) {
+  const version = ++refreshVersion
+  clearTimeout(pollTimer)
   loading.value = true
   error.value = ''
   if (clearNotice) {
@@ -336,14 +346,18 @@ async function load({ clearNotice = true } = {}) {
       getSyncJobs({ provider: 'garmin', page: 1, page_size: 5 }),
       getSyncLogs({ provider: 'garmin', page: 1, page_size: 6 }),
     ])
+    if (!visible || version !== refreshVersion) return
     account.value = nextAccount
     jobs.value = nextJobs
     logs.value = nextLogs
     syncFormFromAccount(nextAccount)
+    schedulePoll()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : '同步状态加载失败'
+    if (visible && version === refreshVersion) {
+      error.value = err instanceof Error ? err.message : '同步状态加载失败'
+    }
   } finally {
-    loading.value = false
+    if (version === refreshVersion) loading.value = false
   }
 }
 
@@ -363,6 +377,7 @@ async function withAction(action, successMessage) {
 }
 
 function authorize() {
+  if (busy.value || syncing.value) return
   authorizing.value = true
   return withAction(async () => {
     const nextAccount = await authorizeGarminAccount(form)
@@ -374,24 +389,81 @@ function authorize() {
   })
 }
 
-function runSync() {
-  syncing.value = true
-  return withAction(async () => {
-    const job = await createSyncJob({ provider: 'garmin', jobType: 'manual_sync' })
-    if (job.status === 'failed') {
-      throw new Error(job.errorMessage || 'Garmin 同步失败')
+function rememberJob(job) {
+  jobs.value.items = [job, ...jobs.value.items.filter(current => current.id !== job.id)].slice(0, 5)
+}
+
+function schedulePoll(delay = 2000) {
+  clearTimeout(pollTimer)
+  if (visible && activeJob.value) pollTimer = setTimeout(pollJob, delay)
+}
+
+async function pollJob() {
+  if (!activeJob.value) return
+  const id = activeJob.value.id
+  const version = refreshVersion
+  try {
+    const job = await getSyncJob(id)
+    if (!visible || version !== refreshVersion) return
+    rememberJob(job)
+    syncError.value = ''
+    if (job.status === 'success') {
+      notice.value = `Garmin 同步完成，导入 ${job.activityCount} 条新运动。`
+    } else if (['failed', 'skipped'].includes(job.status)) {
+      notice.value = ''
+      syncError.value = job.errorMessage || 'Garmin 同步未完成，可以重新发起。'
     }
-  }, '同步完成，最新状态已刷新。').finally(() => {
-    syncing.value = false
-  })
+    if (!activeJob.value) {
+      const [freshAccount, freshLogs] = await Promise.allSettled([
+        getGarminAccount(),
+        getSyncLogs({ provider: 'garmin', page: 1, page_size: 6 }),
+      ])
+      if (!visible || version !== refreshVersion) return
+      if (freshAccount.status === 'fulfilled') account.value = freshAccount.value
+      if (freshLogs.status === 'fulfilled') logs.value = freshLogs.value
+      if ((freshAccount.status === 'rejected' || freshLogs.status === 'rejected') && !syncError.value) {
+        syncError.value = '同步结果已保存，可以刷新读取最新账号与日志。'
+      }
+    }
+    schedulePoll()
+  } catch {
+    if (!visible || version !== refreshVersion) return
+    syncError.value = '暂时无法读取 Garmin 同步进度，将自动重试。'
+    schedulePoll(5000)
+  }
+}
+
+async function runSync() {
+  if (busy.value || syncing.value) return
+  enqueueing.value = true
+  syncError.value = ''
+  notice.value = ''
+  try {
+    const job = await createSyncJob({ provider: 'garmin', jobType: 'manual_sync' })
+    rememberJob(job)
+    notice.value = '同步已提交。离开页面后，任务会继续运行。'
+    schedulePoll()
+  } catch (error) {
+    syncError.value = error instanceof Error ? error.message : '无法提交 Garmin 同步。'
+  } finally {
+    enqueueing.value = false
+  }
 }
 
 function disconnect() {
+  if (busy.value || syncing.value) return
   return withAction(
     () => disconnectGarminAccount(),
     'Garmin 账号已解除绑定。',
   )
 }
 
-onMounted(load)
+onMounted(() => {
+  visible = true
+  void load()
+})
+onBeforeUnmount(() => {
+  visible = false
+  clearTimeout(pollTimer)
+})
 </script>

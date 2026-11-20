@@ -9,6 +9,7 @@ const {
   parseActivityFilters,
   parseEnum,
   parseSummaryFilters,
+  parseTrainingFilters,
   parseTrendFilters,
   parseYearMonth,
   sendCachedStats
@@ -19,15 +20,18 @@ function createStatsRouter(activityService = defaultActivityService, authService
   const requireAuth = authenticate(authService);
 
   router.get('/stats/activity-types', requireAuth, asyncHandler((req, res) =>
-    sendCachedStats(req, res, () => activityService.getActivityTypeStats(parseActivityFilters(req.query, req.user)))
+    sendCachedStats(req, res, parseActivityFilters(req.query, req.user), filters => activityService.getActivityTypeStats(filters))
   ));
 
   router.get('/stats/summary', requireAuth, asyncHandler((req, res) =>
-    sendCachedStats(req, res, () => activityService.getSummaryStats(parseSummaryFilters(req.query, req.user)))
+    sendCachedStats(req, res, parseSummaryFilters(req.query, req.user), filters => activityService.getSummaryStats(filters))
   ));
 
   router.get('/stats/metric-trend', requireAuth, asyncHandler((req, res) =>
-    sendCachedStats(req, res, () => activityService.getMetricTrend(parseTrendFilters(req.query, req.user)))
+    sendCachedStats(req, res, parseTrendFilters(req.query, req.user), filters => activityService.getMetricTrend(filters))
+  ));
+  router.get('/stats/metric-trends', requireAuth, asyncHandler((req, res) =>
+    sendCachedStats(req, res, parseTrainingFilters(req.query, req.user), filters => activityService.getMetricTrends(filters))
   ));
 
   router.get('/stats/calendar', requireAuth, asyncHandler((req, res) => {
@@ -36,29 +40,23 @@ function createStatsRouter(activityService = defaultActivityService, authService
       throw new ApiError(400, 'month is required', 'INVALID_QUERY');
     }
 
-    return sendCachedStats(req, res, () =>
-      activityService.getCalendarStats({
-        ...parseActivityFilters(req.query, req.user),
-        month
-      })
-    );
+    return sendCachedStats(req, res, { ...parseActivityFilters(req.query, req.user), month },
+      filters => activityService.getCalendarStats(filters));
   }));
 
   router.get('/stats/timeline', requireAuth, asyncHandler((req, res) =>
-    sendCachedStats(req, res, () =>
-      activityService.getTimelineStats({
-        ...parseSummaryFilters(req.query, req.user),
-        groupBy: parseEnum(req.query.group_by, TIMELINE_GROUPS, 'group_by', 'day')
-      })
-    )
+    sendCachedStats(req, res, {
+      ...parseSummaryFilters(req.query, req.user),
+      groupBy: parseEnum(req.query.group_by, TIMELINE_GROUPS, 'group_by', 'day')
+    }, filters => activityService.getTimelineStats(filters))
   ));
 
   router.get('/stats/heart-rate-zones', requireAuth, asyncHandler((req, res) =>
-    sendCachedStats(req, res, () => activityService.getHeartRateZones(parseActivityFilters(req.query, req.user)))
+    sendCachedStats(req, res, parseActivityFilters(req.query, req.user), filters => activityService.getHeartRateZones(filters))
   ));
 
   router.get('/stats/personal-bests', requireAuth, asyncHandler((req, res) =>
-    sendCachedStats(req, res, () => activityService.getPersonalBests(parseActivityFilters(req.query, req.user)))
+    sendCachedStats(req, res, parseActivityFilters(req.query, req.user), filters => activityService.getPersonalBests(filters))
   ));
 
   return router;

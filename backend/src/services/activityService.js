@@ -1,6 +1,9 @@
 const db = require('../db');
 const { ApiError } = require('../errors');
 
+const trainingActivityTimestamp = 'a.training_timestamp';
+const runningActivityPredicate = "(a.sport_code = 1 OR a.activity_type = 'running' OR RIGHT(a.activity_type, 8) = '_running')";
+
 const SORT_COLUMNS = {
   local_start_time: 'a.local_start_time',
   distance_m: 'js.distance_m',
@@ -154,7 +157,8 @@ function mapActivitySummary(row) {
   });
 }
 
-function buildActivityFilters({ activityType, startDate, endDate, keyword, source, owner, ownerUserId, runningOnly } = {}) {
+function buildActivityFilters({ activityType, startDate, endDate, keyword, source, owner, ownerUserId, runningOnly } = {},
+  timestamp = 'a.local_start_time') {
   const where = [];
   const params = [];
 
@@ -164,16 +168,16 @@ function buildActivityFilters({ activityType, startDate, endDate, keyword, sourc
   }
 
   if (runningOnly) {
-    where.push("(a.sport_code = 1 OR a.activity_type = 'running' OR RIGHT(a.activity_type, 8) = '_running')");
+    where.push(runningActivityPredicate);
   }
 
   if (startDate) {
-    where.push('a.local_start_time >= ?');
+    where.push(`${timestamp} >= ?`);
     params.push(`${startDate} 00:00:00.000`);
   }
 
   if (endDate) {
-    where.push('a.local_start_time <= ?');
+    where.push(`${timestamp} <= ?`);
     params.push(`${endDate} 23:59:59.999`);
   }
 
@@ -381,7 +385,7 @@ async function activityExists(activityId) {
 
 async function getActivityAccess(activityId) {
   const rows = await db.query(
-    'SELECT id, owner_user_id AS ownerUserId FROM Activities WHERE id = ? LIMIT 1',
+    'SELECT id, owner_user_id AS ownerUserId, photo_path AS photoPath FROM Activities WHERE id = ? LIMIT 1',
     [activityId]
   );
   return rows[0] || null;
@@ -575,21 +579,22 @@ async function getLatestActivityDate(filters) {
   return rows[0]?.latestDate || toDateString(new Date());
 }
 
-async function getLoadBalance({ range, endDate, ...filters }) {
+async function getLoadBalance({ range, endDate, ...filters }, { useTrainingDates = false } = {}) {
   const days = TRAINING_RANGE_DAYS[range];
   const resolvedEndDate = endDate || await getLatestActivityDate(filters);
   const startDate = addDays(resolvedEndDate, -(days - 1));
   const warmupStartDate = addDays(startDate, -42);
+  const timestamp = useTrainingDates ? trainingActivityTimestamp : 'a.local_start_time';
   const activityFilters = buildActivityFilters({
     ...filters,
     startDate: warmupStartDate,
     endDate: resolvedEndDate
-  });
+  }, timestamp);
 
   const dailyRows = await db.query(
     `
       SELECT
-        DATE_FORMAT(a.local_start_time, '%Y-%m-%d') AS activityDate,
+        DATE_FORMAT(${timestamp}, '%Y-%m-%d') AS activityDate,
         ROUND(SUM(js.activity_training_load), 2) AS dailyTrainingLoad
       FROM Activities a
       LEFT JOIN Users u ON u.id = a.owner_user_id
@@ -678,12 +683,13 @@ async function getActivityTypeStats(filters) {
   }));
 }
 
-async function getSummaryStats(filters, { includeCoverage = false } = {}) {
+async function getSummaryStats(filters, { includeCoverage = false, useTrainingDates = false } = {}) {
   const resolvedFilters = {
     ...filters,
     ...resolveRangeDates(filters)
   };
-  const activityFilters = buildActivityFilters(resolvedFilters);
+  const timestamp = useTrainingDates ? trainingActivityTimestamp : 'a.local_start_time';
+  const activityFilters = buildActivityFilters(resolvedFilters, timestamp);
 
   const rows = await db.query(
     `
@@ -706,8 +712,8 @@ async function getSummaryStats(filters, { includeCoverage = false } = {}) {
         ROUND(MIN(js.duration_s / NULLIF(js.distance_m / 1000, 0)), 2) AS fastestPaceSecPerKm,
         ROUND(SUM(js.activity_training_load), 1) AS totalTrainingLoad
         ${includeCoverage ? `,
-          MAX(DATE(a.local_start_time)) AS latestDate,
-          COUNT(DISTINCT DATE(a.local_start_time)) AS runningDays,
+          MAX(DATE(${timestamp})) AS latestDate,
+          COUNT(DISTINCT DATE(${timestamp})) AS runningDays,
           COUNT(CASE WHEN a.data_source = 'demo_synthetic' THEN 1 END) AS demoActivities,
           COUNT(js.distance_m) AS distanceSamples,
           COUNT(CASE WHEN js.distance_m > 0 AND js.duration_s > 0 THEN 1 END) AS paceSamples,
@@ -731,16 +737,14 @@ async function getSummaryStats(filters, { includeCoverage = false } = {}) {
   };
 }
 
-async function getTimelineStats({ groupBy, ...filters }) {
+async function getTimelineStats({ groupBy, ...filters }, { useTrainingDates = false } = {}) {
   const resolvedFilters = {
     ...filters,
     ...resolveRangeDates(filters)
   };
-  const activityFilters = buildActivityFilters(resolvedFilters);
-  const periodExpression =
-    groupBy === 'month'
-      ? "DATE_FORMAT(a.local_start_time, '%Y-%m')"
-      : "DATE_FORMAT(a.local_start_time, '%Y-%m-%d')";
+  const timestamp = useTrainingDates ? trainingActivityTimestamp : 'a.local_start_time';
+  const activityFilters = buildActivityFilters(resolvedFilters, timestamp);
+  const periodExpression = `DATE_FORMAT(${timestamp}, '${groupBy === 'month' ? '%Y-%m' : '%Y-%m-%d'}')`;
 
   return db.query(
     `
@@ -754,6 +758,10 @@ async function getTimelineStats({ groupBy, ...filters }) {
         ROUND(SUM(js.calories), 1) AS totalCalories,
         ROUND(SUM(js.activity_training_load), 1) AS totalTrainingLoad,
         ROUND(AVG(js.avg_heart_rate_bpm), 1) AS avgHeartRateBpm
+        ${useTrainingDates ? `,
+          COUNT(js.duration_s) AS durationSamples,
+          COUNT(js.distance_m) AS distanceSamples,
+          COUNT(CASE WHEN a.data_source = 'demo_synthetic' THEN 1 END) AS demoActivities` : ''}
       FROM Activities a
       LEFT JOIN Users u ON u.id = a.owner_user_id
       LEFT JOIN ActivitySummaries js ON js.activity_id = a.id
@@ -806,6 +814,24 @@ async function getMetricTrend({ metric, range, endDate, ...filters }) {
     sampleCount: Number(row.sampleCount || 0),
     activities: activitiesByDate.get(row.date) || []
   }));
+}
+
+async function getMetricTrends({ range, endDate, ...filters }) {
+  const end = endDate || await getLatestActivityDate(filters);
+  const activityFilters = buildActivityFilters({ ...filters, startDate: addDays(end, 1 - TRAINING_RANGE_DAYS[range]), endDate: end });
+  const metrics = Object.entries(TREND_METRICS);
+  const columns = metrics.map(([metric, config]) => `CASE WHEN ${config.having} THEN ${config.expression} END AS ${metric}`);
+  const rows = await db.query(`
+    SELECT DATE_FORMAT(a.local_start_time, '%Y-%m-%d') AS date, ${columns.join(', ')}
+    FROM Activities a
+    LEFT JOIN Users u ON u.id = a.owner_user_id
+    LEFT JOIN ActivitySummaries js ON js.activity_id = a.id
+    ${activityFilters.clause}
+    GROUP BY date
+    ORDER BY date ASC`, activityFilters.params);
+  return Object.fromEntries(metrics.map(([metric]) => [metric,
+    rows.filter(row => row[metric] != null).map(row => ({ date: row.date, value: Number(row[metric]) }))
+  ]));
 }
 
 async function getCalendarStats({ month, ...filters }) {
@@ -1145,7 +1171,7 @@ async function getPersonalBests(filters) {
 }
 
 async function getDashboardOverview(filters = {}) {
-  const { trainingLoadRange, ...activityFilters } = filters;
+  const { trainingLoadRange, view, ...activityFilters } = filters;
   const today = await getLatestActivityDate(activityFilters);
   const month = today.slice(0, 7);
   const year = today.slice(0, 4);
@@ -1158,6 +1184,11 @@ async function getDashboardOverview(filters = {}) {
     sortBy: 'local_start_time',
     sortOrder: 'desc'
   });
+  const load = async () => {
+    const rows = await getLoadBalance({ ...activityFilters, range: trainingLoadRange || '3m', endDate: today });
+    return trainingLoadRange ? rows : rows.slice(-30);
+  };
+  if (view === 'today') return { recentActivities: recentActivities.items, trainingLoad: await load() };
   const monthlySummary = await getSummaryStats({
     ...activityFilters,
     range: 'month',
@@ -1168,18 +1199,14 @@ async function getDashboardOverview(filters = {}) {
     range: 'year',
     date: year
   });
-  const trainingLoad = await getLoadBalance({
-    ...activityFilters,
-    range: trainingLoadRange || '3m',
-    endDate: today
-  });
+  const trainingLoad = await load();
   const personalBests = await getPersonalBests(activityFilters);
 
   return {
     recentActivities: recentActivities.items,
     monthlySummary,
     yearlySummary,
-    trainingLoad: trainingLoadRange ? trainingLoad : trainingLoad.slice(-30),
+    trainingLoad,
     personalBests
   };
 }
@@ -1391,6 +1418,8 @@ async function updateActivityWeather(user, activityId, payload, source = 'manual
 }
 
 module.exports = {
+  trainingActivityTimestamp,
+  runningActivityPredicate,
   listActivities,
   getActivityById,
   activityExists,
@@ -1405,6 +1434,7 @@ module.exports = {
   getSummaryStats,
   getTimelineStats,
   getMetricTrend,
+  getMetricTrends,
   getCalendarStats,
   getHeartRateZones,
   getLoadBalance,

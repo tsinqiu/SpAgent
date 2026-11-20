@@ -1,16 +1,16 @@
 apply plugin: 'com.android.application'
 
 android {
-    namespace = "com.motioncare.app"
+    namespace = "com.spagent.app"
     compileSdk = rootProject.ext.compileSdkVersion
-    def releaseStoreFile = System.getenv("MOTIONCARE_RELEASE_STORE_FILE")
+    def releaseStoreFile = System.getenv("SPAGENT_RELEASE_STORE_FILE")
     def releaseSigningConfigured =
         releaseStoreFile &&
-        System.getenv("MOTIONCARE_RELEASE_STORE_PASSWORD") &&
-        System.getenv("MOTIONCARE_RELEASE_KEY_ALIAS") &&
-        System.getenv("MOTIONCARE_RELEASE_KEY_PASSWORD")
+        System.getenv("SPAGENT_RELEASE_STORE_PASSWORD") &&
+        System.getenv("SPAGENT_RELEASE_KEY_ALIAS") &&
+        System.getenv("SPAGENT_RELEASE_KEY_PASSWORD")
     defaultConfig {
-        applicationId "com.motioncare.app"
+        applicationId "com.spagent.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
@@ -26,9 +26,9 @@ android {
         release {
             if (releaseSigningConfigured) {
                 storeFile file(releaseStoreFile)
-                storePassword System.getenv("MOTIONCARE_RELEASE_STORE_PASSWORD")
-                keyAlias System.getenv("MOTIONCARE_RELEASE_KEY_ALIAS")
-                keyPassword System.getenv("MOTIONCARE_RELEASE_KEY_PASSWORD")
+                storePassword System.getenv("SPAGENT_RELEASE_STORE_PASSWORD")
+                keyAlias System.getenv("SPAGENT_RELEASE_KEY_ALIAS")
+                keyPassword System.getenv("SPAGENT_RELEASE_KEY_PASSWORD")
             }
         }
     }

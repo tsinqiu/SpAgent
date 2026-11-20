@@ -6,14 +6,16 @@
     role="button"
     tabindex="0"
     @click="$emit('select', activity)"
-    @keydown.enter="$emit('select', activity)"
-    @keydown.space.prevent="$emit('select', activity)"
+    @keydown.enter.self="$emit('select', activity)"
+    @keydown.space.self.prevent="$emit('select', activity)"
   >
     <time class="activity-card-time">{{ formattedCardTime }}</time>
     <div class="activity-card-main">
       <span class="activity-accent" aria-hidden="true"></span>
       <span class="activity-icon" aria-hidden="true">
-        <img v-if="activity.photo_path" :src="photoUrl(activity.photo_path)" class="activity-thumb" alt="" />
+        <ProtectedPhoto v-if="activity.photo_path && activity.id" kind="activity" :id="activity.id" :path="activity.photo_path" class="activity-thumb" lazy>
+          <component :is="sportIcon" :size="22" />
+        </ProtectedPhoto>
         <component :is="sportIcon" v-else :size="22" />
       </span>
       <span class="activity-copy">
@@ -51,7 +53,7 @@ import {
   formatPace,
   formatSpeed,
 } from '@/utils/formatters'
-import { resolveMediaUrl } from '@/services/http'
+import ProtectedPhoto from '@/components/ProtectedPhoto.vue'
 
 const props = defineProps({
   activity: {
@@ -112,10 +114,6 @@ const metricItems = computed(() => [
   { label: '训练负荷', value: trainingLoadValue.value },
   { label: '天气', value: weatherText.value },
 ])
-
-function photoUrl(path) {
-  return resolveMediaUrl(path)
-}
 
 function formatCardDateTime(value) {
   if (!value) return '--'

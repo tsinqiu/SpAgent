@@ -1,5 +1,5 @@
 {
-  "name": "motion-analysis-backend",
+  "name": "spagent-backend",
   "version": "0.1.0",
   "private": true,
   "description": "SpAgent Express API backed by MySQL.",
@@ -11,7 +11,7 @@
     "dev": "nodemon src/server.js",
     "start": "npm run db:verify && node src/server.js",
     "db:init": "node scripts/initDatabase.js",
-    "db:migrate": "node scripts/applyMigration.js ../database/sql/02_training_plans.sql ../database/sql/03_coach_agent.sql ../database/sql/04_execution_feedback.sql",
+    "db:migrate": "node scripts/applyMigration.js ../database/sql/02_training_plans.sql ../database/sql/03_coach_agent.sql ../database/sql/04_execution_feedback.sql ../database/sql/05_training_preferences.sql ../database/sql/06_training_timestamp_index.sql ../database/sql/07_training_reminders.sql ../database/sql/08_garmin_sync_queue.sql",
     "db:verify": "node scripts/verifyDatabase.js",
     "seed:admin": "node scripts/seedAdmin.js",
     "seed:training-demo": "node scripts/seedTrainingDemo.js",
@@ -26,8 +26,9 @@
     "file-type": "^22.0.1",
     "helmet": "^8.2.0",
     "jsonwebtoken": "^9.0.3",
-    "multer": "^2.2.0",
-    "mysql2": "^3.15.3"
+    "lru-cache": "^11.5.3",
+    "multer": "^2.5.0",
+    "mysql2": "^3.24.6"
   },
   "devDependencies": {
     "nodemon": "^3.1.11",

@@ -1,21 +1,14 @@
 <template>
   <div class="page-stack training-health-page">
     <section class="training-health-hero">
-      <div class="range-stepper">
-        <button type="button" aria-label="上一周期">
-          <ChevronLeft :size="22" aria-hidden="true" />
-        </button>
-        <strong>{{ rangeLabel }}</strong>
-        <button type="button" aria-label="下一周期">
-          <ChevronRight :size="22" aria-hidden="true" />
-        </button>
-      </div>
-      <div class="range-pills" aria-label="时间范围">
+      <strong class="health-range-label">{{ rangeLabel }}</strong>
+      <div class="range-pills" role="group" aria-label="健康度时间范围">
         <button
           v-for="item in ranges"
           :key="item.value"
           type="button"
           :class="{ active: range === item.value }"
+          :aria-pressed="range === item.value"
           @click="range = item.value"
         >
           {{ item.label }}
@@ -25,7 +18,7 @@
 
     <StateBlock v-if="loading" title="正在加载健康度" message="正在读取训练负荷数据。" />
     <StateBlock v-else-if="error" title="健康度加载失败" :message="error" tone="danger" action-label="重试" @action="load" />
-    <StateBlock v-else-if="!chartRows.length" title="暂无训练负荷数据" message="同步运动数据后，这里会展示 CTL、ATL 和 TSB 状态。" />
+    <StateBlock v-else-if="!chartRows.length" title="暂无训练负荷数据" message="同步运动数据后，这里会展示体能、疲劳和训练状态。" />
 
     <template v-else>
       <ChartPanel class="training-health-chart" title="训练负荷状态" eyebrow="" :option="loadChartOption" />
@@ -62,11 +55,10 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { ChevronLeft, ChevronRight } from '@lucide/vue'
 
 import ChartPanel from '@/components/ChartPanel.vue'
 import StateBlock from '@/components/StateBlock.vue'
-import { getDashboardOverview } from '@/services/dashboard'
+import { getLoadBalance } from '@/services/training'
 
 const ranges = [
   { label: '42天', value: '42d', days: 42 },
@@ -80,6 +72,7 @@ const range = ref('3m')
 const loading = ref(false)
 const error = ref('')
 const trainingLoad = ref([])
+let loadVersion = 0
 const tsbZones = [
   { label: '过渡期', min: 25, max: 90, color: '#d97706', fill: '#fdecc8' },
   { label: '精力充沛', min: 10, max: 25, color: '#0284c7', fill: '#dff4ff' },
@@ -295,15 +288,19 @@ function formatShortDate(value) {
 }
 
 async function load() {
+  const version = ++loadVersion
   loading.value = true
   error.value = ''
   try {
-    const overview = await getDashboardOverview({ training_load_range: activeRange.value.value })
-    trainingLoad.value = overview.trainingLoad || []
+    const rows = await getLoadBalance({ range: activeRange.value.value })
+    if (version === loadVersion) trainingLoad.value = rows
   } catch (err) {
-    error.value = err instanceof Error ? err.message : '健康度加载失败'
+    if (version === loadVersion) {
+      trainingLoad.value = []
+      error.value = err instanceof Error ? err.message : '健康度加载失败'
+    }
   } finally {
-    loading.value = false
+    if (version === loadVersion) loading.value = false
   }
 }
 
@@ -349,23 +346,7 @@ watch(range, load, { immediate: true })
   line-height: 1.15;
 }
 
-.range-stepper {
-  display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) 44px;
-  align-items: center;
-}
-
-.range-stepper button {
-  width: 44px;
-  height: 44px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  background: transparent;
-  color: var(--text);
-}
-
-.range-stepper strong {
+.health-range-label {
   min-width: 0;
   color: var(--text);
   font-size: 22px;

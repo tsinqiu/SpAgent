@@ -2,18 +2,14 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
-async function source(path) {
-  try {
-    return await readFile(new URL(`../${path}`, import.meta.url), 'utf8')
-  } catch (error) {
-    if (error?.code === 'ENOENT') return ''
-    throw error
-  }
+function source(path) {
+  return readFile(new URL(`../${path}`, import.meta.url), 'utf8')
 }
 
 const [
   systemService,
   serverHealthBadge,
+  authStore,
   loginView,
   registerView,
   todayView,
@@ -21,10 +17,12 @@ const [
   routerSource,
   appCss,
   packageJsonText,
-  nginxConfig,
+  backendNginxConfig,
+  frontendNginxConfig,
 ] = await Promise.all([
   source('src/services/system.js'),
   source('src/components/ServerHealthBadge.vue'),
+  source('src/stores/authStore.js'),
   source('src/views/Login.vue'),
   source('src/views/Register.vue'),
   source('src/views/Today.vue'),
@@ -32,7 +30,8 @@ const [
   source('src/router/index.js'),
   source('src/assets/app.css'),
   source('package.json'),
-  source('../backend/docs/nginx-motion-analysis.conf'),
+  source('../backend/docs/nginx-spagent.conf'),
+  source('deploy/nginx.spagent.example.conf'),
 ])
 
 const packageJson = JSON.parse(packageJsonText)
@@ -43,32 +42,38 @@ test('public system service reads the server health endpoint through the configu
   assert.match(systemService, /export\s+async\s+function\s+getServerHealth/)
 })
 
-test('ServerHealthBadge renders user-facing service state for auth screens', () => {
-  assert.match(serverHealthBadge, /getServerHealth/)
-  assert.match(serverHealthBadge, /服务在线/)
-  assert.match(serverHealthBadge, /数据可用/)
-  assert.doesNotMatch(serverHealthBadge, /数据库已连接/)
-  assert.doesNotMatch(serverHealthBadge, /MotionCare API|数据层|数据库/)
-  assert.match(serverHealthBadge, /服务暂不可用/)
-  assert.match(serverHealthBadge, /server-health-badge/)
+test('public service status distinguishes checking, online, degraded and offline states', () => {
   assert.match(serverHealthBadge, /aria-live="polite"/)
-})
-
-test('login and register screens surface the server status before account actions', () => {
-  assert.match(loginView, /import\s+ServerHealthBadge\s+from\s+['"]@\/components\/ServerHealthBadge\.vue['"]/)
-  assert.match(registerView, /import\s+ServerHealthBadge\s+from\s+['"]@\/components\/ServerHealthBadge\.vue['"]/)
-  assert.match(loginView, /<ServerHealthBadge\s*\/>/)
-  assert.match(registerView, /<ServerHealthBadge\s*\/>/)
-})
-
-test('auth screens do not expose APK download actions inside the app flow', () => {
-  for (const view of [loginView, registerView]) {
-    assert.doesNotMatch(view, /\/downloads\/motioncare-release\.apk/)
-    assert.doesNotMatch(view, /\/downloads\/motioncare-debug\.apk/)
-    assert.doesNotMatch(view, /下载安卓应用/)
-    assert.doesNotMatch(view, /Android App/)
-    assert.doesNotMatch(view, /android-download-link/)
+  assert.match(serverHealthBadge, /await getServerHealth\(\)/)
+  assert.match(serverHealthBadge, /health\?\.status === 'ok' && health\.database\?\.ok/)
+  for (const [status, label] of [
+    ['online', '服务在线'], ['degraded', '部分服务可用'], ['offline', '服务暂不可用'],
+  ]) {
+    assert.match(serverHealthBadge, new RegExp(`status\\.value === '${status}'\\) return '${label}'`))
   }
+  assert.match(serverHealthBadge, /ref\('checking'\)/)
+  assert.match(serverHealthBadge, /return '连接中'/)
+  assert.doesNotMatch(serverHealthBadge, /SpAgent API|数据层|数据库/)
+})
+
+test('account screens surface form and authentication failures and disable duplicate submissions', () => {
+  for (const [view, action] of [[loginView, 'signIn'], [registerView, 'signUp']]) {
+    assert.match(view, /@submit\.prevent="submit"/)
+    assert.match(view, /role="alert"/)
+    assert.match(view, /v-if="localError \|\| authSession\.error"/)
+    assert.match(view, /\{\{\s*localError \|\| authSession\.error\s*\}\}/)
+    assert.match(view, /:disabled="authSession\.loading"/)
+    assert.match(view, new RegExp(`await ${action}\\(`))
+  }
+  assert.match(authStore, /authSession\.error\s*=[^\n]*error/)
+})
+
+test('auth screens keep direct package downloads on the web download route', () => {
+  for (const view of [loginView, registerView]) {
+    assert.doesNotMatch(view, /\/downloads\/[^'"\s]+\.apk/)
+  }
+  assert.match(loginView, /<RouterLink\b[^>]*v-if="showApkDownloadEntry"[^>]*:to="\{ name: 'download' \}"/)
+  assert.match(loginView, /showApkDownloadEntry\s*=\s*!Capacitor\.isNativePlatform\(\)/)
 })
 
 test('download page is the web-only home for the server-hosted Android package', () => {
@@ -77,35 +82,36 @@ test('download page is the web-only home for the server-hosted Android package',
   assert.match(routerSource, /path:\s*['"]\/download['"]/)
   assert.match(routerSource, /name:\s*['"]download['"]/)
   assert.match(routerSource, /redirect:\s*\(\)\s*=>\s*\(isNativeRuntime\(\)\s*\|\|\s*hasAuthToken\(\)\s*\?\s*['"]\/today['"]\s*:\s*['"]\/download['"]\)/)
-  assert.match(routerSource, /to\.name\s*===\s*['"]download['"][\s\S]*?isNativeRuntime\(\)[\s\S]*?name:\s*['"]login['"]/)
-  assert.match(downloadView, /<ServerHealthBadge\s*\/>/)
-  assert.match(downloadView, /\/downloads\/motioncare-release\.apk/)
-  assert.doesNotMatch(downloadView, /\/downloads\/motioncare-debug\.apk/)
+  assert.match(routerSource, /to\.name === 'download'[\s\S]*?isNativeRuntime\(\)[\s\S]*?hasAuthToken\(\) \? \{ name: 'today' \} : \{ name: 'login' \}/)
+  assert.match(downloadView, /<ServerHealthBadge\b[^>]*\/>/)
+  assert.match(downloadView, /<a\b[^>]*v-if="apkAvailable"[^>]*href="\/downloads\/spagent-release\.apk"[^>]*\bdownload\b/)
+  assert.doesNotMatch(downloadView, /\/downloads\/spagent-debug\.apk/)
   assert.match(downloadView, /下载安卓版 APK/)
-  assert.match(downloadView, /\/icons\/motioncare-icon\.svg/)
-  assert.doesNotMatch(downloadView, /download-brand__mark/)
-  assert.match(downloadView, /download-page/)
-  assert.match(downloadView, /download-primary/)
-  assert.match(appCss, /\.download-page\s*\{[\s\S]*?--download-green:\s*#2e681d/)
-  assert.match(appCss, /\.download-primary\s*\{[\s\S]*?background:\s*var\(--download-green\)/)
+  assert.match(downloadView, /<button\b[^>]*v-else[^>]*\sdisabled\s*>/)
+  assert.match(downloadView, /正在检查安装包/)
+  assert.match(downloadView, /安装包暂未上传/)
 })
 
-test('home page surfaces the APK download page and download page returns home', () => {
-  assert.match(todayView, /type=["']button["'][\s\S]*?@click=["']goToDownload["']/)
-  assert.match(todayView, /router\.push\(['"]\/download['"]\)/)
-  assert.match(todayView, /android-download-link/)
-  assert.match(todayView, /下载安卓版/)
-  assert.doesNotMatch(todayView, /<RouterLink/)
-  assert.doesNotMatch(todayView, /\/downloads\/motioncare-release\.apk/)
-  assert.match(downloadView, /to=["']\/today["']/)
-  assert.match(downloadView, /返回主页/)
-  assert.match(downloadView, /download-return/)
+test('package availability checks the response content type as well as HTTP status', () => {
+  assert.match(downloadView, /fetch\(['"]\/downloads\/spagent-release\.apk['"],\s*\{[\s\S]*?method:\s*['"]HEAD['"]/)
+  assert.match(downloadView, /response\.headers\.get\(['"]content-type['"]\)/i)
+  assert.match(downloadView, /application\/vnd\.android\.package-archive/)
+  assert.match(downloadView, /application\/octet-stream/)
+  assert.match(downloadView, /apkAvailable\.value\s*=\s*response\.ok\s*&&/)
 })
 
-test('server health badge follows the RQ-style green system status treatment', () => {
-  assert.match(appCss, /\.server-health-badge\s*\{[\s\S]*?border:\s*1px solid color-mix\(in srgb, var\(--app-green\) 14%, var\(--border\)\)/)
-  assert.match(appCss, /\.server-health-badge__dot\s*\{[\s\S]*?background:\s*var\(--app-green\)/)
-  assert.match(appCss, /\.server-health-badge--offline\s+\.server-health-badge__dot\s*\{[\s\S]*?background:\s*#ef4444/)
+test('the home page links web users to Android downloads and the download page links to the web app', () => {
+  assert.match(todayView, /<RouterLink\b[^>]*v-if="showApkDownloadEntry"[^>]*:to="\{ name: 'download' \}"/)
+  assert.match(todayView, /showApkDownloadEntry\s*=\s*!Capacitor\.isNativePlatform\(\)/)
+  assert.match(todayView, /下载安卓版 APK/)
+  assert.doesNotMatch(todayView, /\/downloads\/spagent-release\.apk/)
+  assert.match(downloadView, /<RouterLink\b[^>]*to="\/today"[^>]*>[\s\S]*?使用网页版[\s\S]*?<\/RouterLink>/)
+})
+
+test('the service status badge provides distinct styles for degraded and offline states', () => {
+  assert.match(appCss, /\.server-health-badge__dot\s*\{[^}]*background:\s*var\(--app-green\)/)
+  assert.match(appCss, /\.server-health-badge--degraded\s+\.server-health-badge__dot\s*\{[^}]*background:/)
+  assert.match(appCss, /\.server-health-badge--offline\s+\.server-health-badge__dot\s*\{[^}]*background:/)
 })
 
 test('course check includes server health UI coverage', () => {
@@ -113,5 +119,13 @@ test('course check includes server health UI coverage', () => {
 })
 
 test('nginx serves Android packages as real files instead of SPA fallback', () => {
-  assert.match(nginxConfig, /location\s+\/downloads\/\s*\{[\s\S]*?try_files\s+\$uri\s+=404;/)
+  for (const config of [backendNginxConfig, frontendNginxConfig]) {
+    assert.match(config, /location\s+\/downloads\/\s*\{[^}]*try_files\s+\$uri\s+=404;/)
+  }
+})
+
+test('nginx forwards uploads to Express instead of serving them from disk', () => {
+  for (const config of [backendNginxConfig, frontendNginxConfig]) {
+    assert.match(config, /location\s+\/uploads\/\s*\{[^}]*proxy_pass\s+http:\/\/127\.0\.0\.1:8080;/)
+  }
 })
