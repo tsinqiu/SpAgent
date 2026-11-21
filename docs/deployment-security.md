@@ -104,7 +104,7 @@ FLUSH PRIVILEGES;
 ```
 
 ### 3.4 Nginx + HTTPS（Let's Encrypt）
-1. 使用 [nginx-spagent.conf](file:///d:/AIsth/SprotAgent/backend/docs/nginx-spagent.conf) 作为站点模板：
+1. 使用 [nginx-spagent.conf](../backend/docs/nginx-spagent.conf) 作为站点模板：
    - 开启 `server_tokens off`
    - 拦截 `/.env`、`/.git`、`*.php`、`*.sql` 等扫描器请求（直接 `return 444` 断连）
    - 为 `/api/agent/coach/stream` 关闭 `proxy_buffering`，确保流式输出不卡顿
@@ -145,3 +145,13 @@ WantedBy=multi-user.target
 - 每日 `mysqldump --single-transaction spagent | gzip > /var/backups/spagent-$(date +%F).sql.gz`（保留 7 天，`chmod 600`）。
 - 若曾暴露过任何 API Key（DeepSeek、高德）或 `.env`，立即在对应控制台重置并重启服务。
 - 定期在服务器查看登录与安全审计：`SELECT * FROM SecurityAuditLogs ORDER BY id DESC LIMIT 30;`。
+
+---
+
+## 4. 容器化隔离与零公网端口方案（Docker Compose + Cloudflare Tunnel）
+
+当宿主机已有其他服务占用 `80`/`443` 端口或云安全组不便额外开放入站端口时，可采用全容器隔离架构：
+
+1. **独立网络与最小暴露**：将 `mysql:8.4`、`spagent-api`（非 root `node` 用户）、`spagent-web`（Nginx）与 `cloudflare/cloudflared` 放入专用 Docker bridge 网络；数据库与 API 不向宿主机映射任何端口，Web 容器仅监听 `127.0.0.1:8088:80`。
+2. **出站隧道 + 自动 HTTPS**：在 Cloudflare Zero Trust 创建 Tunnel，将公网子域名（如 `https://spagent.your-domain.example`）路由到内网服务 `http://spagent-web:80`，由 Cloudflare 边缘自动签发 HTTPS 证书并隐藏源站 IP；Tunnel Token 仅保存在受 `chmod 600` 保护的服务器本地环境变量文件中，严禁提交到仓库。
+3. **字符集初始化**：MySQL 8.4 容器首次初始化 `database/sql/*.sql` 时须确保客户端连接为 `utf8mb4`（含中文字面量的迁移脚本顶部已显式声明 `SET NAMES utf8mb4;`），避免默认标题等中文字段被按 `latin1` 解码为乱码。

@@ -1,3 +1,5 @@
+SET NAMES utf8mb4;
+
 SET @add_garmin_lease = IF(
   EXISTS (
     SELECT 1 FROM information_schema.columns
