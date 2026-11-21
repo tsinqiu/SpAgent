@@ -1371,69 +1371,65 @@ onBeforeUnmount(() => {
   gap: 0;
   margin: calc(var(--activity-detail-gutter) * -1);
   padding-bottom: var(--space-5);
-  background: #f2f4f7;
-  color: #111827;
+  background: var(--bg);
+  color: var(--text);
 }
 
 .activity-detail-tabs {
   position: sticky;
-  top: calc(28px - var(--activity-detail-gutter));
+  top: calc(var(--activity-detail-gutter) * -1);
   z-index: 4;
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  border-bottom: 1px solid #d7dce3;
-  background: #f2f4f7;
-}
-
-.activity-detail-tabs::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: -28px;
-  height: 28px;
-  background: var(--app-top-green);
-  pointer-events: none;
+  border-bottom: 0.5px solid var(--border);
+  background: color-mix(in srgb, var(--panel) 86%, transparent);
+  backdrop-filter: saturate(180%) blur(18px);
+  -webkit-backdrop-filter: saturate(180%) blur(18px);
 }
 
 .activity-detail-tabs button {
   position: relative;
-  min-height: 58px;
+  min-height: 46px;
   border: 0;
   background: transparent;
-  color: #3f4652;
-  font-size: 17px;
+  color: var(--muted);
+  font-size: 14px;
   font-weight: 500;
+  transition: color 140ms ease;
 }
 
 .activity-detail-tabs button.active {
-  color: #16b96f;
-  font-weight: 800;
+  color: var(--app-green-dark);
+  font-weight: 620;
 }
 
 .activity-detail-tabs button.active::after {
   content: "";
   position: absolute;
-  left: 0;
-  right: 0;
+  left: 24%;
+  right: 24%;
   bottom: 0;
-  height: 4px;
-  background: #19c77b;
+  height: 2.5px;
+  border-radius: 999px;
+  background: var(--app-green);
 }
 
 .detail-tab-panel {
   display: grid;
-  gap: 18px;
+  gap: 16px;
 }
 
 .overview-tab {
-  gap: 0;
+  gap: 14px;
+  padding: 16px;
 }
 
 .detail-overview-map {
-  border-radius: 0;
-  border: 0;
-  box-shadow: none;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  padding: 0;
 }
 
 .detail-overview-map :deep(.panel-heading) {
@@ -1441,50 +1437,76 @@ onBeforeUnmount(() => {
 }
 
 .detail-overview-map :deep(.route-map) {
-  min-height: 292px;
-  border-radius: 0;
+  min-height: 280px;
+  border-radius: 20px;
+}
+
+.detail-overview-map :deep(.amap-toolbar) {
+  border-radius: 12px !important;
+  overflow: hidden;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 0.12);
+}
+
+.detail-overview-map :deep(.amap-logo),
+.detail-overview-map :deep(.amap-copyright) {
+  margin-left: 8px;
+  margin-bottom: 4px;
+}
+
+.overview-tab > .soft-note {
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--faint);
+  margin: -4px 0 0;
 }
 
 .activity-title-card {
   display: grid;
-  grid-template-columns: 82px minmax(0, 1fr);
+  grid-template-columns: 52px minmax(0, 1fr);
   align-items: center;
   gap: 14px;
-  padding: 20px 22px;
-  border-bottom: 1px solid #d7dce3;
-  background: #f8fafc;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--panel);
+  box-shadow: var(--shadow-sm);
 }
 
 .activity-type-icon {
-  width: 64px;
-  height: 64px;
+  width: 52px;
+  height: 52px;
   display: grid;
   place-items: center;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--sport-color) 12%, #fff);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--sport-color) 12%, var(--panel-soft));
   color: var(--sport-color);
 }
 
 .activity-title-card h1 {
   margin: 0;
-  color: #111827;
-  font-size: 25px;
-  line-height: 1.15;
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 620;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
   overflow-wrap: anywhere;
 }
 
 .activity-title-card p {
-  margin: 8px 0 0;
-  color: #4b5563;
-  font-size: 16px;
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 13.5px;
 }
 
 .overview-metric-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 30px 18px;
-  padding: 26px 22px 28px;
-  background: #f2f4f7;
+  gap: 20px 14px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--panel);
+  box-shadow: var(--shadow-sm);
 }
 
 .overview-metric-grid article {
@@ -1493,17 +1515,20 @@ onBeforeUnmount(() => {
 
 .overview-metric-grid small {
   display: block;
-  color: #5c6470;
-  font-size: 15px;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 450;
   line-height: 1.3;
 }
 
 .overview-metric-grid strong {
   display: block;
-  margin-top: 6px;
-  color: #111827;
-  font-size: 24px;
-  font-weight: 800;
+  margin-top: 5px;
+  color: var(--text);
+  font-size: 21px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
   line-height: 1.15;
 }
 
@@ -1514,8 +1539,9 @@ onBeforeUnmount(() => {
 }
 
 .overview-metric-value em {
-  color: #111827;
-  font-size: 14px;
+  margin-left: 1px;
+  color: var(--muted);
+  font-size: 12px;
   font-style: normal;
   font-weight: 500;
 }
@@ -1525,10 +1551,10 @@ onBeforeUnmount(() => {
 .detail-info-group,
 .split-table-card {
   margin: 0 16px;
-  border: 1px solid #d9dee5;
-  border-radius: 18px;
-  background: #fff;
-  box-shadow: 0 10px 24px rgb(15 23 42 / 0.06);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--panel);
+  box-shadow: var(--shadow-sm);
 }
 
 .training-analysis-card {

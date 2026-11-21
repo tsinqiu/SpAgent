@@ -10,7 +10,6 @@ const [
   appCss,
   coachView,
   coachPlanAgent,
-  coachPlanDraft,
   adminView,
   mainSource,
   statusView,
@@ -41,7 +40,6 @@ const [
   source('src/assets/app.css'),
   source('src/views/Coach.vue'),
   source('src/components/CoachPlanAgent.vue'),
-  source('src/components/CoachPlanDraft.vue'),
   source('src/views/Admin.vue'),
   source('src/main.js'),
   source('src/views/Status.vue'),
@@ -86,12 +84,11 @@ test('phone content and form controls are allowed to shrink', () => {
   assert.match(appCss, /\.phone-frame\s+:is\([^}]*input[^}]*textarea[^}]*select[^}]*\)\s*\{[\s\S]*?min-width:\s*0/)
 })
 
-test('coach layout contains long content inside the phone frame', () => {
-  assert.match(coachView, /\.chat-surface\s*\{[^}]*min-width:\s*0/)
-  assert.match(coachView, /\.chat-composer\s+textarea\s*\{[^}]*min-width:\s*0/)
-  assert.match(coachView, /\.chat-bubble\s*\{[^}]*overflow-wrap:\s*anywhere/)
-  assert.match(coachPlanAgent, /\.plan-agent__thread\s*\{[^}]*max-height:[^}]*overflow-y:\s*auto/)
-  assert.match(coachPlanAgent, /\.plan-agent__composer\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+44px/)
+test('coach keeps the composer visible and scrolls only the conversation', () => {
+  assert.match(coachPlanAgent, /\.plan-agent\s*\{[^}]*grid-template-rows:\s*minmax\(0,\s*1fr\)\s+auto/)
+  assert.match(coachPlanAgent, /\.plan-agent__thread\s*\{[^}]*min-height:\s*0[^}]*overflow-y:\s*auto/)
+  assert.match(coachPlanAgent, /\.plan-agent__composer\s*\{[^}]*grid-template-columns:\s*40px\s+minmax\(0,\s*1fr\)\s+(?:44px|auto)/)
+  assert.match(coachPlanAgent, /overflow-wrap:\s*anywhere/)
 })
 
 test('admin users render as mobile cards with a Vant confirmation dialog', () => {
@@ -129,31 +126,28 @@ test('the persisted theme is initialized before any route renders', () => {
   assert.match(mainSource, /initTheme\(\)[\s\S]*createApp\(App\)/)
 })
 
-test('mobile shell scrolls its main content and keeps navigation clear of safe areas', () => {
+test('mobile shell scrolls its content and accounts for device safe areas', () => {
   assert.match(appCss, /--safe-top:\s*env\(safe-area-inset-top,\s*0px\)/)
   assert.match(appCss, /--safe-bottom:\s*env\(safe-area-inset-bottom,\s*0px\)/)
-  assert.match(appCss, /\.app-navbar\.van-nav-bar\s*\{[^}]*padding-top:\s*var\(--safe-top\)/)
-  assert.match(appCss, /\.app-tabbar\.van-tabbar\s*\{[^}]*padding-bottom:\s*var\(--safe-bottom\)/)
-  assert.match(appCss, /\.phone-frame\s+\.page-frame\s*\{[^}]*min-height:\s*0[^}]*padding-bottom:[^}]*var\(--safe-bottom\)[^}]*overflow-y:\s*auto/)
+  assert.match(appCss, /\.workspace-navbar\s*\{[^}]*padding:\s*calc\(4px \+ var\(--safe-top\)\)/)
+  assert.match(appCss, /\.workspace-menu__navigation\s*\{[^}]*var\(--safe-bottom\)/)
+  assert.match(coachPlanAgent, /\.plan-agent__tabs\s*\{[^}]*var\(--safe-bottom\)/)
+  assert.match(appCss, /\.phone-frame\s+\.page-frame\s*\{[^}]*min-height:\s*0[^}]*overflow-y:\s*auto/)
 })
 
-test('nested pages get a scoped back action and top-bar shortcuts are labeled', () => {
-  assert.match(appShell, /:title="navTitle"/)
-  assert.match(appShell, /:left-arrow="showBack"/)
-  assert.match(appShell, /:left-text="showBack \? '返回' : ''"/)
-  assert.match(appShell, /@click-left="goBack"/)
-  assert.match(appShell, /const showBack = computed\([^\n]*route\.meta\.backTo/)
-  assert.match(appShell, /if \(event\.defaultPrevented\) return/)
-  assert.match(appShell, /router\.push\(route\.meta\.backTo \|\| '/)
-  assert.match(appShell, /v-if="!hideTabbar"/)
+test('nested page shortcuts and menu trigger have accessible names', () => {
   assert.match(appShell, /<button\b[^>]*:aria-label="pageAction\.label"[^>]*@click="handlePageAction"/)
-  assert.match(appShell, /<button\b[^>]*aria-label="[^"]+"[^>]*@click="goProfile"/)
+  assert.match(appShell, /aria-label="打开工作区菜单"[^>]*aria-haspopup="dialog"[^>]*aria-controls="workspace-menu"/)
+  assert.match(appShell, /<dialog id="workspace-menu"/)
+  assert.match(appShell, /menu\.value\?\.showModal\(\)/)
+  assert.doesNotMatch(appShell, /<van-tabbar\b/)
 })
 
-test('primary tabbar exposes realtime workout recording as a first-level app function', () => {
-  assert.match(appShell, /record:\s*MapPin/)
-  assert.match(appShell, /app-tabbar-item--record/)
-  assert.match(appCss, /\.app-tabbar-item--record\s+\.van-tabbar-item__icon\s*\{[\s\S]*?background:\s*var\(--app-green\)/)
+test('workspace menus support reduced motion and have a named close action', () => {
+  assert.match(appCss, /prefers-reduced-motion:\s*reduce[\s\S]*?\.workspace-menu\[open\]\s*\{\s*animation:\s*none/)
+  assert.match(appShell, /aria-label="关闭菜单"[^>]*@click="closeMenu"/)
+  assert.match(appCss, /\.workspace-menu\[open\]\.is-closing\s*\{[^}]*workspace-menu-out/)
+  assert.match(appShell, /@cancel\.prevent="closeMenu"[\s\S]*?@animationend\.self="finishMenuAnimation"/)
 })
 
 test('status page shows recovery data and opens running-power details', () => {
@@ -193,7 +187,7 @@ test('status page mirrors runner five-power analysis with radar and load bars', 
 })
 
 test('today shows the calculated training index and coaching guidance', () => {
-  assert.match(todayView, /<strong>\{\{\s*trainingIndexDisplay\s*\}\}<\/strong>/)
+  assert.match(todayView, /<strong[^>]*>\{\{\s*trainingIndexDisplay\s*\}\}<\/strong>/)
   assert.match(todayView, /\{\{\s*compactTrainingAdvice\s*\}\}/)
   assert.match(todayView, /const trainingIndexDisplay = computed\([^\n]*trainingIndexScore\.value \?\? '--'/)
   assert.match(todayView, /getPerformanceProfile\(\)/)
@@ -225,8 +219,7 @@ test('activity filters and coach actions fit beside flexible content', () => {
   assert.match(activitiesView, /<button\b[^>]*@click="filterOpen = true"/)
   assert.match(activitiesView, /\.feed-toolbar\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto/)
   assert.match(activitiesView, /\.feed-toolbar__tabs\s*\{[^}]*min-width:\s*0/)
-  assert.match(coachView, /\.coach-chat-modes\s*\{[^}]*grid-template-columns:/)
-  assert.match(coachView, /\.chat-composer textarea\s*\{[^}]*min-width:\s*0/)
+  assert.match(coachPlanAgent, /\.plan-agent__composer textarea\s*\{[^}]*min-width:\s*0/)
 })
 
 test('today page exposes an RQ-style weekly training rhythm panel', () => {
@@ -247,7 +240,7 @@ test('today lets users step through dates and shows an empty state for days with
   assert.match(todayView, /<button\b[^>]*aria-label="前一天"[^>]*@click="shiftSelectedDate\(-1\)"/)
   assert.match(todayView, /<button\b[^>]*:disabled="!canShiftNextDate"[^>]*@click="shiftSelectedDate\(1\)"/)
   assert.match(todayView, /<ActivityCard\s+v-for="activity in selectedDateActivities"/)
-  assert.match(todayView, /<article\b[^>]*v-if="!selectedDateActivities\.length"/)
+  assert.match(todayView, /<article\b[^>]*v-else[^>]*class="today-no-activity-row"/)
   assert.match(todayView, /<StateBlock[\s\S]*?@action="loadToday"/)
 })
 
@@ -283,7 +276,6 @@ test('health and training summaries present available metrics with descriptive l
     assert.ok(statusView.includes(label), 'Missing recovery indicator ' + label)
   }
   assert.match(healthDetailView, /暂无训练负荷数据/)
-  assert.match(coachView, /训练指数/)
   assert.match(trainingLoadView, /部分健康指标暂时不可用/)
   assert.match(trainingLoadView, /体感强度/)
 })
@@ -341,19 +333,15 @@ test('activity detail provides item actions with touch targets and shell navigat
   assert.doesNotMatch(activityDetailView, /to="\/activities"|detail-action--back/)
 })
 
-test('coach exposes plan and advice modes and labels rule-based availability', () => {
-  assert.match(coachView, /aria-label="教练对话模式"/)
-  assert.match(coachView, /计划助手/)
-  assert.match(coachView, /日常问答/)
+test('coach uses the unified chat component and names the responding provider', () => {
   assert.match(coachView, /<CoachPlanAgent\b/)
-  assert.match(coachView, /activeProvider === 'rules'[\s\S]*?label: '本地规则'/)
-  assert.match(coachView, /label: '基础建议'/)
+  assert.match(coachPlanAgent, /DeepSeek 暂时不可用 · 本地回复/)
 })
 
 test('primary app pages use Chinese labels for key operations', () => {
   for (const [view, label] of [
     [todayView, '今日快捷入口'],
-    [coachView, '教练对话模式'],
+    [coachPlanAgent, '给教练发消息'],
     [activityDetailView, '运动操作'],
     [syncView, '同步动态'],
     [statisticsView, '趋势指标'],

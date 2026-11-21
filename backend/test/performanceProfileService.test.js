@@ -76,5 +76,4 @@ test('five power returns valid scores and data quality warnings when technique s
   assert.equal(powers.length, 5);
   assert.ok(powers.every((item) => Number.isInteger(item.score) && item.score >= 0 && item.score <= 100));
   assert.ok(quality.warnings.some((warning) => warning.includes('动作技术数据不足')));
-  assert.ok(quality.warnings.some((warning) => warning.includes('FitRec')));
 });

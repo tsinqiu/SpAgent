@@ -13,7 +13,6 @@ const createStatsRouter = require('./routes/statsRoutes');
 const createTrainingRouter = require('./routes/trainingRoutes');
 const createTrainingPlanRouter = require('./routes/trainingPlanRoutes');
 const createDashboardRouter = require('./routes/dashboardRoutes');
-const createMlRouter = require('./routes/mlRoutes');
 const createAiRouter = require('./routes/aiRoutes');
 const createCoachAgentRouter = require('./routes/coachAgentRoutes');
 const createManualActivityRouter = require('./routes/manualActivityRoutes');
@@ -29,7 +28,7 @@ const defaultShoeService = require('./services/shoeService');
 function createApp({
   healthService = defaultHealthService,
   activityService,
-  mlService,
+  performanceProfileService,
   aiService,
   agentService,
   authService,
@@ -45,7 +44,8 @@ function createApp({
   executionService,
   weeklyReportService,
   securityService,
-  securityConfig = config.security
+  securityConfig = config.security,
+  authConfig = config.auth
 } = {}) {
   if (!shoeService) shoeService = defaultShoeService;
   const app = express();
@@ -57,13 +57,27 @@ function createApp({
 
   app.use(helmet({
     contentSecurityPolicy: false,
-    crossOriginResourcePolicy: { policy: 'cross-origin' }
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    frameguard: { action: 'deny' },
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+    hsts: process.env.NODE_ENV === 'production'
+      ? { maxAge: 31536000, includeSubDomains: true }
+      : false
   }));
+
+  app.use((req, res, next) => {
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(self), geolocation=()');
+    next();
+  });
 
   app.use(
     cors({
       origin(origin, callback) {
-        if (!origin || config.cors.origins.includes(origin)) {
+        if (!origin) {
+          callback(null, true);
+          return;
+        }
+        if (config.cors.origins.includes(origin) && origin !== '*') {
           callback(null, true);
           return;
         }
@@ -95,26 +109,58 @@ function createApp({
       });
     }
   }));
+  app.use('/api/auth/register', rateLimit({
+    windowMs: securityConfig.registerRateLimitWindowMs || 60 * 60 * 1000,
+    limit: securityConfig.registerRateLimitMax || 100,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    handler(req, res) {
+      res.status(429).json({
+        error: { code: 'REGISTER_RATE_LIMITED', message: 'too many registration attempts, please try again later' }
+      });
+    }
+  }));
+  app.use(['/api/ai', '/api/agent'], rateLimit({
+    windowMs: securityConfig.aiRateLimitWindowMs || 15 * 60 * 1000,
+    limit: securityConfig.aiRateLimitMax || 300,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    handler(req, res) {
+      res.status(429).json({
+        error: { code: 'AI_RATE_LIMITED', message: 'too many AI requests, please slow down' }
+      });
+    }
+  }));
+  app.use('/api/explore/events/refresh', rateLimit({
+    windowMs: securityConfig.crawlerRefreshRateLimitWindowMs || 15 * 60 * 1000,
+    limit: securityConfig.crawlerRefreshRateLimitMax || 30,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    handler(req, res) {
+      res.status(429).json({
+        error: { code: 'CRAWLER_RATE_LIMITED', message: 'event calendar refresh rate limit exceeded' }
+      });
+    }
+  }));
   app.use(express.json({ limit: config.security.jsonLimit }));
   app.use('/uploads/explore-videos', express.static(config.uploads.exploreVideosDir, { index: false, redirect: false }));
   app.use('/uploads/explore-images', express.static(config.uploads.exploreImagesDir, { index: false, redirect: false }));
   app.use('/uploads/community-images', createCommunityRouter.createPublicImageRouter(communityService));
   app.use('/uploads', (req, res) => res.sendStatus(404));
 
-  app.use('/api', createAuthRouter(authService, securityService));
-  app.use('/api', createSystemRouter());
+  app.use('/api', createAuthRouter(authService, securityService, authConfig));
+  app.use('/api', createSystemRouter(authConfig, authService));
   app.use('/api', createAdminUserRouter(authService));
   app.use('/api', createHealthRouter(healthService, authService));
   app.use('/api', createActivityRouter(activityService, authService));
   app.use('/api', createStatsRouter(activityService, authService));
-  app.use('/api', createTrainingRouter(activityService, authService));
+  app.use('/api', createTrainingRouter(activityService, authService, performanceProfileService));
   app.use('/api', createTrainingPlanRouter({
     authService, planService, contextService, executionService, weeklyReportService
   }));
   app.use('/api', createDashboardRouter(activityService, authService));
   app.use('/api', createManualActivityRouter({ manualActivityService, authService }));
   app.use('/api', createWorkoutRouter({ workoutService, authService }));
-  app.use('/api', createMlRouter(mlService, authService));
   app.use('/api', createAiRouter({ aiService, authService }));
   app.use('/api', createCoachAgentRouter({ agentService, authService }));
   app.use('/api', createSyncRouter({ syncService, authService }));

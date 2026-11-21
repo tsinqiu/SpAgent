@@ -1,9 +1,11 @@
 const createApp = require('./app');
 const config = require('./config');
 const db = require('./db');
-const { startServer } = require('./serverStartup');
+const { startServer, validateProductionConfig } = require('./serverStartup');
 const syncService = require('./services/syncService');
+const marathonEventCrawlerService = require('./services/marathonEventCrawlerService');
 
+validateProductionConfig(config, process.env.NODE_ENV);
 const app = createApp();
 const server = startServer({
   app,
@@ -11,6 +13,7 @@ const server = startServer({
   port: config.server.port
 });
 const syncWorker = syncService.startWorker();
+const eventCrawlerScheduler = marathonEventCrawlerService.startScheduler();
 
 const SHUTDOWN_TIMEOUT_MS = 30000;
 let shuttingDown = false;
@@ -42,7 +45,7 @@ async function shutdown(signal) {
   timer.unref?.();
 
   try {
-    await Promise.all([closeServer(), syncWorker.stop()]);
+    await Promise.all([closeServer(), syncWorker.stop(), eventCrawlerScheduler.stop()]);
     await db.closePool();
     clearTimeout(timer);
     process.exit(0);

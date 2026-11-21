@@ -3,7 +3,7 @@
     <section class="auth-card auth-card--quiet">
       <div class="auth-topline auth-topline--center">
         <div class="auth-brand auth-brand--plain">
-          <img class="auth-brand__icon" src="/icons/spagent-icon.svg" alt="" />
+          <img class="auth-brand__icon" src="/icons/spagent-icon.png" alt="" />
           <span>
             <strong>SpAgent</strong>
           </span>
@@ -11,7 +11,7 @@
       </div>
 
       <div class="auth-login-mark">
-        <img src="/icons/spagent-icon.svg" alt="" />
+        <img src="/icons/spagent-icon.png" alt="" />
       </div>
 
       <div class="auth-heading auth-heading--center">

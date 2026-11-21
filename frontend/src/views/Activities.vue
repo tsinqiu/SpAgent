@@ -11,6 +11,12 @@
       </button>
     </div>
 
+    <ActivityHeatmap
+      :activity-type="filters.activity_type"
+      :selected-date="selectedSingleDate"
+      @filter-date="handleHeatmapDateFilter"
+    />
+
     <StateBlock
       v-if="loading"
       title="正在加载运动记录"
@@ -113,6 +119,7 @@ import { useRouter } from 'vue-router'
 import { SlidersHorizontal } from '@lucide/vue'
 
 import ActivityCard from '@/components/ActivityCard.vue'
+import ActivityHeatmap from '@/components/ActivityHeatmap.vue'
 import ManualActivityModal from '@/components/ManualActivityModal.vue'
 import SportTabs from '@/components/SportTabs.vue'
 import StateBlock from '@/components/StateBlock.vue'
@@ -149,6 +156,16 @@ const activeFilterCount = computed(() => {
   if (filters.sort_by !== 'local_start_time' || filters.sort_order !== 'desc') count += 1
   return count
 })
+
+const selectedSingleDate = computed(() => (
+  filters.start_date && filters.start_date === filters.end_date ? filters.start_date : ''
+))
+
+function handleHeatmapDateFilter(date) {
+  filters.page = 1
+  filters.start_date = date || ''
+  filters.end_date = date || ''
+}
 
 function resetFilters() {
   filters.keyword = ''
@@ -237,29 +254,21 @@ watch(
   --activity-page-gutter: var(--space-4);
 
   position: sticky;
-  top: calc(28px - var(--activity-page-gutter));
+  top: calc(var(--activity-page-gutter) * -1);
   z-index: 5;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 12px;
+  align-items: center;
+  gap: 10px;
   width: calc(100% + (var(--activity-page-gutter) * 2));
   max-width: none !important;
   margin: 0 calc(var(--activity-page-gutter) * -1);
-  padding: 12px var(--activity-page-gutter) 14px;
-  background: var(--bg);
-  box-shadow: 0 14px 24px rgb(15 23 42 / 0.08);
-}
-
-.feed-toolbar::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: -28px;
-  height: 28px;
-  background: var(--app-top-green);
-  pointer-events: none;
+  padding: 10px var(--activity-page-gutter) 12px;
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  backdrop-filter: saturate(180%) blur(18px);
+  -webkit-backdrop-filter: saturate(180%) blur(18px);
+  border-bottom: 0.5px solid var(--border);
+  box-shadow: none;
 }
 
 @container phone-frame (min-width: 410px) {
@@ -271,7 +280,35 @@ watch(
 .feed-toolbar__tabs {
   min-width: 0;
   padding: 0;
-  overflow: visible;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.feed-toolbar__tabs :deep(.sport-tabs) {
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+
+.feed-toolbar__tabs :deep(.sport-tabs button) {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  height: 34px;
+  min-height: 34px;
+  padding: 0 13px;
+  border-radius: 999px;
+  border: 0;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 520;
+  box-shadow: var(--shadow-sm);
+}
+
+.feed-toolbar__tabs :deep(.sport-tabs button.active) {
+  background: var(--text);
+  color: var(--panel);
+  font-weight: 600;
 }
 
 .feed-toolbar__tabs::-webkit-scrollbar { display: none; }
@@ -281,22 +318,22 @@ watch(
   box-sizing: border-box;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  height: 38px;
-  min-height: 38px;
-  padding: 0 16px;
+  gap: 5px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0 13px;
   border-radius: var(--radius-pill);
-  border: 1px solid color-mix(in srgb, var(--app-green) 18%, var(--border));
+  border: 0;
   background: var(--panel);
   color: var(--text);
-  font-weight: 500;
-  font-size: 14px;
+  font-weight: 540;
+  font-size: 13px;
   box-shadow: var(--shadow-sm);
 }
 
 :deep(.filter-btn) {
-  height: 38px;
-  min-height: 38px;
+  height: 34px;
+  min-height: 34px;
 }
 .filter-btn.active { border-color: var(--green); color: var(--green-strong); }
 .filter-badge {

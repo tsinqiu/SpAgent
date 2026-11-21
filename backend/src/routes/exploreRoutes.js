@@ -11,8 +11,10 @@ const { asyncHandler, parseEnum, parseKeyword, parsePage, parsePageSize, parsePo
 const { authenticate, optionalAuthenticate } = require('../middleware/authMiddleware');
 const { sendCreated, sendData } = require('../response');
 const { removeUploadedFiles, validateUploadedFile } = require('../services/uploadSecurity');
+const marathonEventCrawlerService = require('../services/marathonEventCrawlerService');
 
 const ARTICLE_TYPES = ['course', 'article', 'training_advice'];
+const EVENT_CATEGORIES = ['all', 'full', 'half'];
 
 fs.mkdirSync(config.uploads.exploreVideosDir, { recursive: true });
 fs.mkdirSync(config.uploads.exploreImagesDir, { recursive: true });
@@ -324,6 +326,84 @@ function createExploreRouter(exploreService = defaultExploreService, authService
         await removeUploadedFiles([videoFile, imageFile]);
         throw error;
       }
+    })
+  );
+
+  router.get(
+    '/explore/events',
+    maybeAuth,
+    asyncHandler(async (req, res) => {
+      const category = parseEnum(req.query.category, EVENT_CATEGORIES, 'category', 'all');
+      const days = Math.min(Math.max(Number.parseInt(req.query.days, 10) || 120, 7), 365);
+      const limit = Math.min(Math.max(Number.parseInt(req.query.limit, 10) || 40, 1), 100);
+      const city = parseKeyword(req.query.city) || '';
+      const featured = req.query.featured === 'true' || req.query.featured === '1';
+      const data = await marathonEventCrawlerService.listUpcomingEvents({
+        category,
+        days,
+        limit,
+        city,
+        featured
+      });
+      sendData(res, data);
+    })
+  );
+
+  router.post(
+    '/explore/events/refresh',
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const refresh = await marathonEventCrawlerService.refreshUpcomingEvents({ force: true });
+      const data = await marathonEventCrawlerService.listUpcomingEvents({
+        category: 'all',
+        days: 120,
+        limit: 40
+      });
+      sendData(res, {
+        ...data,
+        refresh
+      });
+    })
+  );
+
+  router.get(
+    '/explore/my-events',
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const items = await marathonEventCrawlerService.listUserEvents(req.user.id);
+      sendData(res, { items });
+    })
+  );
+
+  router.post(
+    '/explore/my-events',
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const name = requireText(req.body?.name, 'name', 255);
+      const saved = await marathonEventCrawlerService.saveUserEvent(req.user.id, {
+        eventKey: optionalText(req.body?.eventKey || req.body?.id, 96),
+        name,
+        date: optionalText(req.body?.date, 20),
+        city: optionalText(req.body?.city, 128),
+        distance: optionalText(req.body?.distance, 64),
+        goal: optionalText(req.body?.goal, 128),
+        note: optionalText(req.body?.note, 1000),
+        source: optionalText(req.body?.source, 512)
+      });
+      sendCreated(res, saved);
+    })
+  );
+
+  router.delete(
+    '/explore/my-events/:id',
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const id = parsePositiveId(req.params.id, 'event id');
+      const result = await marathonEventCrawlerService.deleteUserEvent(req.user.id, id);
+      if (!result.deleted) {
+        throw new ApiError(404, 'event not found', 'NOT_FOUND');
+      }
+      sendData(res, result);
     })
   );
 

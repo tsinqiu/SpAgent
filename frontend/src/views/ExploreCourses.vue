@@ -1,98 +1,207 @@
 <template>
-  <div v-if="selectedCourse" class="course-detail-page">
-    <header class="course-detail-hero">
-      <span class="course-detail-icon" :style="{ '--course-color': selectedCourse.color }">
-        <component :is="selectedCourse.icon" :size="32" aria-hidden="true" />
+  <!-- 1. Tutorial Reader View -->
+  <div v-if="selectedTutorial" class="page-stack reader-page">
+    <article class="reader-card">
+      <header class="reader-head">
+        <div class="reader-badges">
+          <span class="pill-badge">{{ selectedTutorial.category }}</span>
+          <span class="pill-muted">{{ selectedTutorial.level }} · {{ selectedTutorial.readTime }}</span>
+        </div>
+        <h2>{{ selectedTutorial.title }}</h2>
+        <p class="reader-summary">{{ selectedTutorial.summary }}</p>
+      </header>
+
+      <section class="reader-highlights" aria-label="核心要点">
+        <h3>核心要点</h3>
+        <ul>
+          <li v-for="(item, idx) in selectedTutorial.highlights" :key="idx">{{ item }}</li>
+        </ul>
+      </section>
+
+      <section v-for="(sec, sIdx) in selectedTutorial.sections" :key="sIdx" class="reader-section">
+        <h3>{{ sec.heading }}</h3>
+        <p v-if="sec.body">{{ sec.body }}</p>
+        <ul v-if="sec.bullets?.length">
+          <li v-for="(b, bIdx) in sec.bullets" :key="bIdx">{{ b }}</li>
+        </ul>
+      </section>
+
+      <footer class="reader-actions">
+        <button type="button" class="action-btn action-btn--ghost" @click="closeDetail">返回列表</button>
+        <button type="button" class="action-btn action-btn--primary" @click="askCoachAboutTutorial(selectedTutorial)">
+          <Sparkles :size="15" aria-hidden="true" />
+          结合我的数据问教练
+        </button>
+      </footer>
+    </article>
+  </div>
+
+  <!-- 2. Course Detail View -->
+  <div v-else-if="selectedCourse" class="page-stack detail-page">
+    <header class="detail-hero">
+      <span class="detail-hero__icon" :style="{ '--course-color': selectedCourse.color }">
+        <component :is="selectedCourse.icon" :size="22" aria-hidden="true" />
       </span>
-      <div class="course-detail-copy">
+      <div class="detail-hero__copy">
+        <div class="detail-hero__meta">
+          <span class="pill-badge">{{ selectedCourse.typeLabel }}</span>
+          <span class="pill-muted">{{ selectedCourse.weeks.length }} 周{{ selectedCourse.level ? ` · ${selectedCourse.level}` : '' }}</span>
+        </div>
         <h2>{{ selectedCourse.name }}</h2>
         <p>{{ selectedCourse.goal }}</p>
-        <span class="course-phase-chip">{{ selectedWeek.phase }}</span>
       </div>
     </header>
 
-    <nav class="course-week-tabs" aria-label="训练周次">
+    <div class="detail-phase-bar">
+      <span class="pill-badge">{{ selectedWeek.phase }}</span>
+      <span class="pill-muted">第 {{ activeWeek }} / {{ selectedCourse.weeks.length }} 周</span>
+    </div>
+
+    <nav class="week-pills" aria-label="训练周次">
       <button
         v-for="week in selectedCourse.weeks"
         :key="week.week"
         type="button"
+        class="week-pill"
         :class="{ active: activeWeek === week.week }"
         @click="activeWeek = week.week"
       >
-        <Check v-if="activeWeek === week.week" :size="18" aria-hidden="true" />
-        <span>W{{ week.week }}</span>
+        W{{ week.week }}
       </button>
     </nav>
 
-    <section class="course-workout-list" aria-label="本周训练安排">
-      <article v-for="workout in selectedWeek.days" :key="`${selectedWeek.week}-${workout.day}`" class="course-workout-row">
-        <span class="course-day-badge">{{ workout.day }}</span>
-        <div>
+    <section class="workout-list" aria-label="本周训练安排">
+      <article
+        v-for="(workout, wIdx) in selectedWeek.days"
+        :key="`${selectedWeek.week}-${wIdx}`"
+        class="workout-row"
+        :class="{ 'is-rest': workout.title === '休息日' }"
+      >
+        <span class="workout-day">{{ weekdayLabel(wIdx) }}</span>
+        <div class="workout-copy">
           <strong>{{ workout.title }}</strong>
-          <p>{{ workout.subtitle }}</p>
+          <p v-if="workout.subtitle && workout.subtitle !== '休息日'">{{ workout.subtitle }}</p>
           <small v-if="workout.note">{{ workout.note }}</small>
         </div>
-        <Info v-if="workout.note" :size="19" aria-hidden="true" />
       </article>
     </section>
 
-    <div class="course-detail-actions">
-      <button type="button" class="course-back-button" @click="closeDetail">Back</button>
-      <button type="button" class="course-save-button" @click="savePlan">
-        <Check :size="20" aria-hidden="true" />
-        <span>保存计划</span>
+    <div class="detail-actions">
+      <button type="button" class="action-btn action-btn--ghost" @click="closeDetail">返回</button>
+      <button type="button" class="action-btn action-btn--primary" :disabled="savingPlan" @click="savePlan">
+        <Check :size="15" aria-hidden="true" />
+        {{ savingPlan ? '保存中…' : '保存为我的计划草稿' }}
       </button>
     </div>
   </div>
 
-  <div v-else class="page-stack course-page">
-    <div class="course-layout">
-      <nav class="course-rail" aria-label="课程分类">
+  <!-- 3. Main Catalog View (Courses + Science Tutorials) -->
+  <div v-else class="page-stack catalog-page">
+    <div class="catalog-segment" role="tablist" aria-label="内容分类">
+      <button
+        type="button"
+        class="catalog-segment__btn"
+        :class="{ active: activeSection === 'courses' }"
+        :aria-selected="activeSection === 'courses'"
+        @click="activeSection = 'courses'"
+      >
+        系统课表 ({{ trainingPlanTemplates.length }})
+      </button>
+      <button
+        type="button"
+        class="catalog-segment__btn"
+        :class="{ active: activeSection === 'tutorials' }"
+        :aria-selected="activeSection === 'tutorials'"
+        @click="activeSection = 'tutorials'"
+      >
+        科学教程 ({{ trainingTutorials.length }})
+      </button>
+    </div>
+
+    <!-- Courses Tab -->
+    <template v-if="activeSection === 'courses'">
+      <nav class="filter-pills" aria-label="课程分类">
         <button
           v-for="filter in trainingPlanFilters"
           :key="filter.key"
           type="button"
+          class="filter-pill"
           :class="{ active: activeFilter === filter.key }"
           @click="activeFilter = filter.key"
         >
-          <component :is="filter.icon" :size="filter.key === 'all' ? 28 : 32" aria-hidden="true" />
-          <span>{{ filter.label }}</span>
+          {{ filter.label }}
         </button>
       </nav>
 
-      <main class="course-content">
-        <section class="course-list" aria-label="常用训练计划">
-          <button
-            v-for="course in filteredTemplates"
-            :key="course.id"
-            type="button"
-            class="course-entry-card"
-            @click="openCourse(course)"
-          >
-            <span class="course-entry-card__icon" :style="{ '--course-color': course.color }">
-              <component :is="course.icon" :size="30" aria-hidden="true" />
-            </span>
-            <span class="course-entry-card__body">
+      <section class="course-list" aria-label="常用训练计划">
+        <button
+          v-for="course in filteredTemplates"
+          :key="course.id"
+          type="button"
+          class="course-card"
+          @click="openCourse(course)"
+        >
+          <span class="course-card__icon" :style="{ '--course-color': course.color }">
+            <component :is="course.icon" :size="20" aria-hidden="true" />
+          </span>
+          <div class="course-card__body">
+            <div class="course-card__top">
               <strong>{{ course.name }}</strong>
-              <small>{{ course.typeLabel }}</small>
-            </span>
-            <ChevronRight :size="28" aria-hidden="true" />
-          </button>
-        </section>
-      </main>
-    </div>
+              <span class="course-card__tag">{{ course.weeks.length }} 周</span>
+            </div>
+            <p>{{ course.goal }}</p>
+            <small>{{ course.typeLabel }}{{ course.level ? ` · ${course.level}` : '' }}{{ course.weeklyFreq ? ` · ${course.weeklyFreq}` : '' }}</small>
+          </div>
+          <ChevronRight :size="16" class="course-card__arrow" aria-hidden="true" />
+        </button>
+      </section>
+    </template>
+
+    <!-- Tutorials Tab -->
+    <section v-else class="tutorial-list" aria-label="运动科学教程">
+      <button
+        v-for="tutorial in trainingTutorials"
+        :key="tutorial.id"
+        type="button"
+        class="tutorial-card"
+        @click="openTutorial(tutorial)"
+      >
+        <div class="tutorial-card__meta">
+          <span class="pill-badge">{{ tutorial.category }}</span>
+          <span class="pill-muted">{{ tutorial.level }} · {{ tutorial.readTime }}</span>
+        </div>
+        <strong>{{ tutorial.title }}</strong>
+        <p>{{ tutorial.summary }}</p>
+        <span class="tutorial-card__cta">
+          <BookOpen :size="13" aria-hidden="true" />
+          阅读完整指南
+          <ChevronRight :size="14" aria-hidden="true" />
+        </span>
+      </button>
+    </section>
   </div>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { showToast } from 'vant'
-import { Check, ChevronRight, Info } from '@lucide/vue'
+import { BookOpen, Check, ChevronRight, Sparkles } from '@lucide/vue'
 import { trainingPlanFilters, trainingPlanTemplates } from '@/data/trainingPlanTemplates'
+import { trainingTutorials } from '@/data/trainingTutorials'
+import { saveTrainingPlan } from '@/services/trainingPlans'
 
+const route = useRoute()
+const router = useRouter()
+
+const activeSection = ref('courses')
 const activeFilter = ref('all')
 const selectedCourse = ref(null)
+const selectedTutorial = ref(null)
 const activeWeek = ref(1)
+const savingPlan = ref(false)
+
+const WEEKDAY_LABELS = ['一', '二', '三', '四', '五', '六', '日']
 
 const filteredTemplates = computed(() => {
   if (activeFilter.value === 'all') return trainingPlanTemplates
@@ -103,26 +212,118 @@ const selectedWeek = computed(() => (
   selectedCourse.value?.weeks.find((week) => week.week === activeWeek.value) || selectedCourse.value?.weeks[0]
 ))
 
+function weekdayLabel(index) {
+  return `周${WEEKDAY_LABELS[index] || ''}`
+}
+
 function openCourse(course) {
+  selectedTutorial.value = null
   selectedCourse.value = course
   activeWeek.value = 1
 }
 
-function closeDetail() {
+function openTutorial(tutorial) {
   selectedCourse.value = null
+  selectedTutorial.value = tutorial
 }
 
-function savePlan() {
-  showToast('计划已保存')
+function closeDetail() {
+  selectedCourse.value = null
+  selectedTutorial.value = null
+}
+
+function nextMondayDateStr() {
+  const now = new Date()
+  const day = now.getDay() || 7
+  const diff = day === 1 ? 0 : 8 - day
+  const target = new Date(now.getFullYear(), now.getMonth(), now.getDate() + diff)
+  return `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}-${String(target.getDate()).padStart(2, '0')}`
+}
+
+function inferSessionType(workout, courseType) {
+  if (courseType === 'strength') return 'other'
+  const text = `${workout.title} ${workout.subtitle}`.toLowerCase()
+  if (/恢复|recovery/.test(text)) return 'recovery'
+  if (/轻松|慢跑|跑走|easy/.test(text)) return 'easy'
+  if (/交叉|力量|休息/.test(text)) return 'other'
+  return 'aerobic'
+}
+
+async function savePlan() {
+  if (!selectedCourse.value || savingPlan.value) return
+  savingPlan.value = true
+  try {
+    const course = selectedCourse.value
+    const planType = ['running', 'cycling', 'swimming'].includes(course.type) ? course.type : 'running'
+    const payload = {
+      name: course.name.slice(0, 120),
+      type: planType,
+      goalType: 'custom',
+      goal: (course.goal || course.name).slice(0, 480),
+      startDate: nextMondayDateStr(),
+      weeks: course.weeks.map((week) => ({
+        phase: String(week.phase || `第 ${week.week} 周`).slice(0, 80),
+        days: (week.days || []).slice(0, 7).map((day) => {
+          if (!day || day.title === '休息日') return {}
+          return {
+            title: String(day.title || '').slice(0, 150),
+            subtitle: String(day.subtitle || '').slice(0, 220),
+            note: String(day.note || '').slice(0, 450),
+            type: inferSessionType(day, course.type),
+          }
+        }),
+      })),
+    }
+    const created = await saveTrainingPlan(null, payload)
+    showToast('已保存为我的训练计划草稿')
+    if (created?.id) {
+      router.push({ name: 'training-plans', query: { planId: created.id } })
+    }
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : '保存计划失败，请稍后重试')
+  } finally {
+    savingPlan.value = false
+  }
+}
+
+function askCoachAboutTutorial(tutorial) {
+  router.push({
+    name: 'coach',
+    query: { prompt: tutorial.coachPrompt || `请结合我的运动数据讲解「${tutorial.title}」` },
+  })
+}
+
+function syncFromRouteQuery() {
+  const { tab, courseId, tutorialId } = route.query
+  if (tab === 'tutorials') activeSection.value = 'tutorials'
+  else if (tab === 'courses') activeSection.value = 'courses'
+
+  if (typeof courseId === 'string' && courseId) {
+    const match = trainingPlanTemplates.find(c => c.id === courseId)
+    if (match) {
+      openCourse(match)
+      return
+    }
+  }
+  if (typeof tutorialId === 'string' && tutorialId) {
+    const match = trainingTutorials.find(t => t.id === tutorialId)
+    if (match) {
+      openTutorial(match)
+      return
+    }
+  }
 }
 
 function handleShellBack(event) {
-  if (!selectedCourse.value) return
+  if (!selectedCourse.value && !selectedTutorial.value) return
   event.preventDefault()
   closeDetail()
 }
 
+watch(() => route.query, syncFromRouteQuery)
+
 onMounted(() => {
+  syncFromRouteQuery()
   window.addEventListener('spagent:nav-back', handleShellBack)
 })
 
@@ -132,354 +333,482 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.course-page {
-  min-height: calc(100dvh - 96px);
-  gap: 0;
+.catalog-page,
+.detail-page,
+.reader-page {
+  gap: 12px;
 }
 
-.course-layout {
-  width: calc(100% + (2 * var(--space-4)));
-  max-width: none !important;
-  min-height: calc(100dvh - 96px);
+.catalog-segment {
   display: grid;
-  grid-template-columns: 86px minmax(0, 1fr);
-  align-items: stretch;
-  margin: 16px calc(-1 * var(--space-4)) calc(-1 * var(--space-4));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px;
+  padding: 3px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--text) 6%, var(--bg));
 }
 
-.course-rail {
-  position: sticky;
-  top: 0;
-  min-height: calc(100dvh - 52px);
-  align-self: start;
-  display: grid;
-  align-content: start;
-  overflow: hidden;
-  background: color-mix(in srgb, var(--panel-soft) 72%, #f8fafc);
-  border-right: 1px solid color-mix(in srgb, var(--text) 16%, transparent);
-}
-
-.course-rail button {
-  min-height: 98px;
-  display: grid;
-  place-items: center;
-  gap: 8px;
+.catalog-segment__btn {
+  height: 34px;
+  min-height: 34px;
   border: 0;
-  border-left: 5px solid transparent;
+  border-radius: 9px;
   background: transparent;
-  color: color-mix(in srgb, var(--muted) 88%, #111827);
-  font: inherit;
-  font-size: 15px;
-  font-weight: 900;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 560;
+  cursor: pointer;
+  transition: background 0.16s ease, color 0.16s ease;
 }
 
-.course-rail button.active {
-  border-left-color: var(--app-green);
-  background: color-mix(in srgb, var(--app-green) 12%, var(--panel));
-  color: var(--app-green-dark);
-}
-
-.course-content {
-  min-width: 0;
-  padding: 32px 6px 28px 18px;
-  background: color-mix(in srgb, var(--panel-soft) 55%, var(--bg));
-}
-
-.course-list {
-  display: grid;
-  gap: 18px;
-}
-
-.course-entry-card {
-  width: 100%;
-  min-height: 92px;
-  display: grid;
-  grid-template-columns: 58px minmax(0, 1fr) 24px;
-  align-items: center;
-  gap: 14px;
-  padding: 14px 16px;
-  border: 2px solid color-mix(in srgb, var(--text) 18%, transparent);
-  border-radius: 22px;
-  background: color-mix(in srgb, var(--panel) 96%, #f8fafc);
+.catalog-segment__btn.active {
+  background: var(--panel);
   color: var(--text);
-  box-shadow: none;
+  font-weight: 650;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.filter-pills {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+}
+
+.filter-pills::-webkit-scrollbar {
+  display: none;
+}
+
+.filter-pill {
+  flex: 0 0 auto;
+  height: 32px;
+  min-height: 32px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 560;
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+}
+
+.filter-pill.active {
+  background: var(--text);
+  color: var(--panel);
+  font-weight: 620;
+}
+
+.course-list,
+.tutorial-list {
+  display: grid;
+  gap: 10px;
+}
+
+.course-card {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 14px;
+  border: 0;
+  border-radius: 18px;
+  background: var(--panel);
+  color: var(--text);
   text-align: left;
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  transition: transform 0.12s ease;
 }
 
-.course-entry-card:active {
-  transform: translateY(1px);
+.course-card:active,
+.tutorial-card:active {
+  transform: scale(0.99);
 }
 
-.course-entry-card__icon,
-.course-detail-icon {
-  width: 58px;
-  height: 58px;
+.course-card__icon,
+.detail-hero__icon {
+  width: 42px;
+  height: 42px;
   display: grid;
   place-items: center;
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--course-color) 12%, #f8fafc);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--course-color) 12%, var(--panel-soft));
   color: var(--course-color);
 }
 
-.course-entry-card__body {
+.course-card__body {
   min-width: 0;
   display: grid;
+  gap: 3px;
+}
+
+.course-card__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 8px;
 }
 
-.course-entry-card strong {
+.course-card__top strong {
   min-width: 0;
+  font-size: 14.5px;
+  font-weight: 650;
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  writing-mode: horizontal-tb;
-  color: var(--text);
-  font-size: 20px;
-  font-weight: 950;
-  line-height: 1.2;
 }
 
-.course-entry-card small {
-  color: var(--muted);
-  font-size: 15px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.course-detail-page {
-  display: grid;
-  gap: 22px;
-  padding-bottom: 96px;
-}
-
-.course-detail-hero {
-  display: grid;
-  grid-template-columns: 74px minmax(0, 1fr);
-  align-items: start;
-  gap: 16px;
-  padding: 20px 0 6px;
-}
-
-.course-detail-copy {
-  min-width: 0;
-  display: grid;
-  gap: 10px;
-}
-
-.course-detail-hero h2 {
-  margin: 0;
-  color: var(--text);
-  font-size: 30px;
-  font-weight: 950;
-  line-height: 1.15;
-}
-
-.course-detail-hero p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 18px;
-  line-height: 1.5;
-}
-
-.course-phase-chip {
-  width: fit-content;
-  padding: 8px 18px;
+.course-card__tag {
+  flex: 0 0 auto;
+  padding: 2px 7px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--app-green) 15%, var(--panel));
-  color: var(--app-green-dark);
-  font-size: 17px;
-  font-weight: 900;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
-.course-week-tabs {
-  display: flex;
-  gap: 12px;
-  margin-inline: calc(-1 * var(--space-4));
-  padding: 4px var(--space-4) 8px;
-  overflow-x: auto;
-  scrollbar-width: none;
+.course-card__body p {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
-.course-week-tabs::-webkit-scrollbar {
-  width: 0;
-  height: 0;
+.course-card__body small {
+  font-size: 11.5px;
+  color: var(--green-strong);
+  font-weight: 560;
 }
 
-.course-week-tabs button {
-  flex: 0 0 116px;
-  min-height: 64px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
-  border-radius: 14px;
+.course-card__arrow {
+  color: var(--muted);
+}
+
+.tutorial-card {
+  width: 100%;
+  display: grid;
+  gap: 7px;
+  padding: 14px 16px;
+  border: 0;
+  border-radius: 18px;
   background: var(--panel);
   color: var(--text);
-  font: inherit;
-  font-size: 20px;
-  font-weight: 900;
+  text-align: left;
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
 }
 
-.course-week-tabs button.active {
-  border-color: transparent;
-  background: color-mix(in srgb, var(--app-green) 16%, var(--panel));
+.tutorial-card__meta,
+.reader-badges,
+.detail-hero__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pill-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--green-tint);
+  color: var(--green-strong);
+  font-size: 11.5px;
+  font-weight: 620;
+}
+
+.pill-muted {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.tutorial-card strong {
+  font-size: 15px;
+  font-weight: 660;
+  line-height: 1.35;
   color: var(--text);
 }
 
-.course-workout-list {
+.tutorial-card p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.tutorial-card__cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--green-strong);
+}
+
+/* Course Detail */
+.detail-hero {
   display: grid;
-  border-radius: 22px;
+  grid-template-columns: 46px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  padding: 15px 16px;
+  border-radius: 20px;
+  background: var(--panel);
+  box-shadow: var(--shadow-sm);
+}
+
+.detail-hero__icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+}
+
+.detail-hero__copy {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.detail-hero__copy h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 680;
+  line-height: 1.25;
+  color: var(--text);
+}
+
+.detail-hero__copy p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.48;
+  color: var(--muted);
+}
+
+.detail-phase-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px;
+}
+
+.week-pills {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+}
+
+.week-pills::-webkit-scrollbar {
+  display: none;
+}
+
+.week-pill {
+  flex: 0 0 auto;
+  min-width: 46px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+}
+
+.week-pill.active {
+  background: var(--text);
+  color: var(--panel);
+}
+
+.workout-list {
+  display: grid;
+  border-radius: 18px;
   overflow: hidden;
   background: var(--panel);
   box-shadow: var(--shadow-sm);
 }
 
-.course-workout-row {
-  min-height: 118px;
+.workout-row {
   display: grid;
-  grid-template-columns: 56px minmax(0, 1fr) 24px;
-  align-items: center;
-  gap: 18px;
-  padding: 18px;
-  border-bottom: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
+  grid-template-columns: 38px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 0.5px solid var(--border);
 }
 
-.course-workout-row:last-child {
+.workout-row:last-child {
   border-bottom: 0;
 }
 
-.course-day-badge {
-  width: 46px;
-  height: 46px;
-  display: grid;
+.workout-row.is-rest {
+  opacity: 0.6;
+}
+
+.workout-day {
+  display: inline-grid;
   place-items: center;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--text) 7%, transparent);
+  height: 26px;
+  border-radius: 8px;
+  background: var(--bg);
   color: var(--text);
-  font-size: 18px;
-  font-weight: 950;
+  font-size: 11.5px;
+  font-weight: 640;
 }
 
-.course-workout-row div {
+.workout-copy {
+  display: grid;
+  gap: 3px;
   min-width: 0;
-  display: grid;
-  gap: 4px;
 }
 
-.course-workout-row strong {
-  color: var(--text);
-  font-size: 21px;
+.workout-copy strong {
+  font-size: 14px;
+  font-weight: 620;
   line-height: 1.35;
+  color: var(--text);
 }
 
-.course-workout-row p,
-.course-workout-row small {
+.workout-copy p,
+.workout-copy small {
   margin: 0;
-  color: var(--muted);
-  font-size: 16px;
+  font-size: 12.5px;
   line-height: 1.45;
+  color: var(--muted);
 }
 
-.course-workout-row > svg {
-  color: var(--app-green);
-}
-
-.course-detail-actions {
-  position: fixed;
-  left: max(18px, calc((100vw - var(--phone-max)) / 2 + 18px));
-  right: max(18px, calc((100vw - var(--phone-max)) / 2 + 18px));
-  bottom: calc(16px + var(--safe-bottom));
-  z-index: 10;
+.detail-actions,
+.reader-actions {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 16px;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  padding-top: 4px;
 }
 
-.course-back-button,
-.course-save-button {
-  min-height: 58px;
+.action-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 6px;
+  height: 42px;
+  min-height: 42px;
+  padding: 0 16px;
   border-radius: 999px;
-  font: inherit;
-  font-size: 18px;
-  font-weight: 900;
+  font-size: 13.5px;
+  font-weight: 620;
+  cursor: pointer;
 }
 
-.course-back-button {
-  border: 1px solid color-mix(in srgb, var(--text) 34%, transparent);
+.action-btn--ghost {
+  border: 0;
   background: var(--panel);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+}
+
+.action-btn--primary {
+  border: 0;
+  background: var(--text);
+  color: var(--panel);
+}
+
+.action-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Tutorial Reader */
+.reader-card {
+  display: grid;
+  gap: 14px;
+  padding: 18px 16px;
+  border-radius: 22px;
+  background: var(--panel);
+  box-shadow: var(--shadow-sm);
+}
+
+.reader-head {
+  display: grid;
+  gap: 8px;
+}
+
+.reader-head h2 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
   color: var(--text);
 }
 
-.course-save-button {
-  border: 1px solid var(--app-green);
-  background: var(--app-green);
-  color: #fff;
-  box-shadow: 0 12px 28px rgb(22 163 74 / 0.22);
+.reader-summary {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--muted);
 }
 
-@container phone-frame (max-width: 390px) {
-  .course-layout {
-    grid-template-columns: 76px minmax(0, 1fr);
-  }
+.reader-highlights {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--bg);
+}
 
-  .course-rail button {
-    min-height: 90px;
-    font-size: 14px;
-  }
+.reader-highlights h3 {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 680;
+  color: var(--green-strong);
+}
 
-  .course-content {
-    padding: 28px 6px 24px 14px;
-  }
+.reader-highlights ul,
+.reader-section ul {
+  margin: 0;
+  padding-left: 17px;
+  display: grid;
+  gap: 5px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text);
+}
 
-  .course-list {
-    gap: 16px;
-  }
+.reader-section {
+  display: grid;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 0.5px solid var(--border);
+}
 
-  .course-entry-card {
-    min-height: 82px;
-    grid-template-columns: 48px minmax(0, 1fr) 22px;
-    gap: 12px;
-    padding: 12px 12px;
-    border-radius: 20px;
-  }
+.reader-section h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 660;
+  color: var(--text);
+}
 
-  .course-entry-card__icon,
-  .course-detail-icon {
-    width: 48px;
-    height: 48px;
-    border-radius: 14px;
-  }
-
-  .course-entry-card strong {
-    font-size: 17px;
-  }
-
-  .course-entry-card small {
-    font-size: 13px;
-  }
-
-  .course-detail-hero h2 {
-    font-size: 24px;
-  }
-
-  .course-workout-row {
-    grid-template-columns: 48px minmax(0, 1fr) 20px;
-    gap: 12px;
-    padding: 16px 14px;
-  }
-
-  .course-workout-row strong {
-    font-size: 18px;
-  }
-
-  .course-workout-row p,
-  .course-workout-row small {
-    font-size: 15px;
-  }
+.reader-section p {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--text);
 }
 </style>

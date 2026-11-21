@@ -11,13 +11,18 @@
     "dev": "nodemon src/server.js",
     "start": "npm run db:verify && node src/server.js",
     "db:init": "node scripts/initDatabase.js",
-    "db:migrate": "node scripts/applyMigration.js ../database/sql/02_training_plans.sql ../database/sql/03_coach_agent.sql ../database/sql/04_execution_feedback.sql ../database/sql/05_training_preferences.sql ../database/sql/06_training_timestamp_index.sql ../database/sql/07_training_reminders.sql ../database/sql/08_garmin_sync_queue.sql",
+    "db:migrate": "node scripts/applyMigration.js ../database/sql/02_training_plans.sql ../database/sql/03_coach_agent.sql ../database/sql/04_execution_feedback.sql ../database/sql/05_training_preferences.sql ../database/sql/06_training_timestamp_index.sql ../database/sql/07_training_reminders.sql ../database/sql/08_garmin_sync_queue.sql ../database/sql/09_coach_feedback_tables.sql ../database/sql/10_coach_message_content.sql ../database/sql/11_athlete_memories.sql ../database/sql/12_marathon_events.sql ../database/sql/13_user_marathon_events.sql",
     "db:verify": "node scripts/verifyDatabase.js",
+    "mcp:serve": "node scripts/spagentMcp.js",
     "seed:admin": "node scripts/seedAdmin.js",
     "seed:training-demo": "node scripts/seedTrainingDemo.js",
     "test": "node --test"
   },
   "dependencies": {
+    "@ai-sdk/deepseek": "^3.0.88",
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@napi-rs/canvas": "^1.1.1",
+    "ai": "^7.0.177",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
@@ -27,11 +32,16 @@
     "helmet": "^8.2.0",
     "jsonwebtoken": "^9.0.3",
     "lru-cache": "^11.5.3",
+    "minisearch": "^7.2.0",
     "multer": "^2.5.0",
-    "mysql2": "^3.24.6"
+    "mysql2": "^3.24.6",
+    "sharp": "^0.35.5",
+    "unpdf": "^1.9.1",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "nodemon": "^3.1.11",
+    "pdf-lib": "^1.17.1",
     "supertest": "^7.2.2"
   }
 }

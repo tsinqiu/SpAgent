@@ -1,10 +1,18 @@
+const crypto = require('node:crypto');
 const express = require('express');
+const config = require('../config');
 const defaultAuthService = require('../services/authService');
 const defaultSecurityService = require('../services/securityService');
 const { ApiError } = require('../errors');
 const { asyncHandler } = require('../http');
 const { authenticate } = require('../middleware/authMiddleware');
 const { sendCreated, sendData } = require('../response');
+
+function safeSecretEqual(input, expected) {
+  const left = crypto.createHash('sha256').update(String(input || '')).digest();
+  const right = crypto.createHash('sha256').update(String(expected || '')).digest();
+  return crypto.timingSafeEqual(left, right);
+}
 
 function requireText(value, name, { min = 1, max = 255 } = {}) {
   const text = String(value || '').trim();
@@ -24,13 +32,40 @@ function requireEmail(value) {
 
 function createAuthRouter(
   authService = defaultAuthService,
-  securityService = defaultSecurityService
+  securityService = defaultSecurityService,
+  authConfig = config.auth
 ) {
   const router = express.Router();
 
   router.post(
     '/auth/register',
     asyncHandler(async (req, res) => {
+      if (authConfig?.allowPublicRegistration === false) {
+        await securityService.recordSecurityEvent?.({
+          eventType: 'REGISTER_BLOCKED',
+          result: 'failure',
+          resourceType: 'auth',
+          detail: { reason: 'REGISTRATION_DISABLED' },
+          req
+        });
+        throw new ApiError(403, 'public registration is disabled', 'REGISTRATION_DISABLED');
+      }
+
+      const requiredCode = String(authConfig?.registrationInviteCode || '').trim();
+      if (requiredCode) {
+        const providedCode = String(req.body?.inviteCode || req.body?.invite_code || '').trim();
+        if (!providedCode || !safeSecretEqual(providedCode, requiredCode)) {
+          await securityService.recordSecurityEvent?.({
+            eventType: 'REGISTER_BLOCKED',
+            result: 'failure',
+            resourceType: 'auth',
+            detail: { reason: 'INVALID_INVITE_CODE' },
+            req
+          });
+          throw new ApiError(403, 'valid invite code is required', 'INVALID_INVITE_CODE');
+        }
+      }
+
       const payload = {
         username: requireText(req.body.username, 'username', { min: 2, max: 80 }),
         email: requireEmail(req.body.email),
@@ -38,6 +73,14 @@ function createAuthRouter(
       };
 
       const result = await authService.register(payload);
+      await securityService.recordSecurityEvent?.({
+        userId: result?.user?.id,
+        eventType: 'REGISTER_SUCCESS',
+        result: 'success',
+        resourceType: 'auth',
+        resourceId: payload.email,
+        req
+      });
       sendCreated(res, result);
     })
   );

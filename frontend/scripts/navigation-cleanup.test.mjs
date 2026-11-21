@@ -45,15 +45,11 @@ test('nested app pages declare stable parent back targets', () => {
 })
 
 test('app shell renders a scoped back button for nested pages', () => {
-  assert.match(appShell, /:title="navTitle"/)
-  assert.match(appShell, /:left-arrow="showBack"/)
-  assert.match(appShell, /:left-text="showBack \? '返回' : ''"/)
-  assert.match(appShell, /@click-left="goBack"/)
+  assert.match(appShell, /<h1>\{\{ navTitle \}\}<\/h1>/)
+  assert.match(appShell, /v-if="showBack"[^>]*aria-label="返回"[^>]*@click="goBack"/)
   assert.match(appShell, /Boolean\(route\.meta\.backTo \|\| returnTarget\.value\)/)
   assert.match(appShell, /typeof source === 'string' && Object\.hasOwn\(returnTargets, source\)/)
-  assert.match(appShell, /if \(event\.defaultPrevented\) return/)
-  assert.match(appShell, /router\.push\(returnTarget\.value\)/)
-  assert.match(appShell, /router\.push\(route\.meta\.backTo \|\| '\/today'\)/)
+  assert.match(appShell, /if \(!event\.defaultPrevented\) router\.push\(returnTarget\.value \|\| route\.meta\.backTo \|\| '\/coach'\)/)
 })
 
 test('marked helper copy is removed from record and today surfaces', () => {

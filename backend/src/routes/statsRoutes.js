@@ -44,6 +44,24 @@ function createStatsRouter(activityService = defaultActivityService, authService
       filters => activityService.getCalendarStats(filters));
   }));
 
+  router.get('/stats/heatmap', requireAuth, asyncHandler((req, res) => {
+    const rawYear = req.query.year ? String(req.query.year).trim() : 'rolling';
+    let year = null;
+    if (rawYear && rawYear !== 'rolling') {
+      if (!/^\d{4}$/.test(rawYear)) {
+        throw new ApiError(400, 'year must be "rolling" or a 4-digit year', 'INVALID_QUERY');
+      }
+      year = rawYear;
+    }
+
+    return sendCachedStats(
+      req,
+      res,
+      { ...parseActivityFilters(req.query, req.user, { withDates: false }), year },
+      filters => activityService.getActivityHeatmap(filters)
+    );
+  }));
+
   router.get('/stats/timeline', requireAuth, asyncHandler((req, res) =>
     sendCachedStats(req, res, {
       ...parseSummaryFilters(req.query, req.user),

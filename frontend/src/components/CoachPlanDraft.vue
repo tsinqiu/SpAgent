@@ -1,9 +1,10 @@
 <template>
-  <section class="plan-draft" aria-label="四周计划草案">
+  <section class="plan-draft" aria-label="训练计划草案">
     <header class="plan-draft__head">
       <div>
         <h3>{{ plan.name }}</h3>
         <p>{{ plan.startDate }} 开始 · {{ plan.weeks.length }} 周</p>
+        <p v-if="plan.goal" class="plan-draft__goal">{{ plan.goal }}</p>
       </div>
       <span class="status-chip" :class="{ good: status === 'applied' }">{{ labels[status] }}</span>
     </header>
@@ -13,8 +14,9 @@
         <li v-for="session in workouts(week)" :key="session.date">
           <time :datetime="session.date">{{ session.date.slice(5) }}</time>
           <div>
-            <strong>{{ session.title }} · {{ session.durationS / 60 }} 分钟</strong>
-            <small>{{ session.subtitle }}</small>
+            <strong>{{ session.title }}<template v-if="sessionMetric(session)"> · {{ sessionMetric(session) }}</template></strong>
+            <small v-if="session.subtitle">{{ session.subtitle }}</small>
+            <small v-if="session.note" class="plan-draft__session-note">{{ session.note }}</small>
           </div>
         </li>
       </ul>
@@ -59,7 +61,14 @@ const status = computed(() => (
 const expiryTime = computed(() => new Intl.DateTimeFormat('zh-CN', {
   month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai',
 }).format(new Date(props.action.expiresAt)))
-const workouts = week => week.days.filter(day => day.title)
+const workouts = week => week.days.filter(day => day.title && day.title !== '休息日')
+
+function sessionMetric(session) {
+  const parts = []
+  if (session.distanceM > 0) parts.push(`${+(session.distanceM / 1000).toFixed(1)} km`)
+  if (session.durationS > 0) parts.push(`${Math.round(session.durationS / 60)} 分钟`)
+  return parts.join(' / ')
+}
 </script>
 
 <style scoped>
@@ -83,6 +92,7 @@ const workouts = week => week.days.filter(day => day.title)
 .plan-draft__head h3 { margin: 0; font-size: 16px; }
 .plan-draft__head p,
 .plan-draft__note { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+.plan-draft__goal { color: var(--text); opacity: .82; }
 
 .plan-draft__week {
   padding: 8px 10px;
@@ -97,6 +107,7 @@ const workouts = week => week.days.filter(day => day.title)
 .plan-draft__week time,
 .plan-draft__week small { color: var(--muted); }
 .plan-draft__week small { display: block; }
+.plan-draft__session-note { opacity: .88; font-style: italic; }
 
 .plan-draft__actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .plan-draft__actions button,

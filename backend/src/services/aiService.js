@@ -2,10 +2,10 @@ const { ApiError } = require('../errors');
 const config = require('../config');
 const db = require('../db');
 const activityService = require('./activityService');
-const coachMlService = require('./coachMlService');
+const trainingReadinessService = require('./trainingReadinessService');
 const { addDays, localToday } = require('./trainingPlanInput');
-const { urgentExerciseWarning } = require('./coachSafety');
-const { hasSessionTimeConstraint } = require('./coachAgentRules');
+const { urgentExerciseWarning, coachAccessWarning } = require('./coachSafety');
+const { isDurationConstrainedPlan } = require('./coachAgentRules');
 
 const CONTEXT_WINDOW_DAYS = 28;
 const HEALTH_WINDOW_DAYS = 14;
@@ -88,6 +88,14 @@ function formatDuration(valueS) {
   if (seconds === null) return '--';
   const minutes = Math.round(seconds / 60);
   return minutes < 60 ? `${minutes} 分钟` : `${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分钟`;
+}
+
+function averagePace(distanceM, durationS) {
+  const distance = toNumber(distanceM);
+  const duration = toNumber(durationS);
+  if (!distance || distance < 0 || !duration || duration < 0) return null;
+  const seconds = Math.round(duration / (distance / 1000));
+  return `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒/公里`;
 }
 
 function activityTypeLabel(type) {
@@ -480,6 +488,13 @@ function sanitizeQuestion(message) {
   return text;
 }
 
+function redactCoachText(text) {
+  return String(text)
+    .replace(/\b[\w.+-]+@[\w.-]+\.[a-z]{2,}\b/gi, '[电子邮箱]')
+    .replace(/\b(?:sk-[a-z\d_-]{12,}|Bearer\s+[a-z\d._-]{12,})\b/gi, '[凭证]')
+    .replace(/((?:密码|口令|API\s*Key|password)\s*[:：=为]\s*)[^\s，。；,;]+/gi, '$1[凭证]');
+}
+
 function buildChatAnswer(message, overview, context = EMPTY_RAG_CONTEXT) {
   if (!/运动|跑步|骑行|游泳|训练|恢复|心率|配速|步频|负荷|疲劳|今日|今天|适合|建议|睡眠|HRV|压力|天气|温度|湿度|安排|活动|Garmin|有氧|力量|拉伸/i.test(message)) {
     return '我目前只围绕运动数据、训练负荷、睡眠恢复、天气影响和训练安排提供建议。可以问我“今天适合训练吗？”或“最近跑步状态怎么样？”。';
@@ -830,14 +845,14 @@ async function getRagContext(user, asOf = localToday()) {
       }
     };
   } catch (_error) {
-    return { ...EMPTY_RAG_CONTEXT, asOf };
+    return { ...EMPTY_RAG_CONTEXT, asOf, unavailable: true };
   }
 }
 
 async function withCoachMlContext(context, overview) {
   if (!buildRiskProfile(overview, context).hasRiskEvidence) return context;
   try {
-    const mlPrediction = await coachMlService.predict({ overview, context });
+    const mlPrediction = await trainingReadinessService.predict({ overview, context });
     return { ...context, mlPrediction };
   } catch (_error) {
     return context;
@@ -848,12 +863,15 @@ function summarizeRows(rows, mapper, limit = 6) {
   return rows.slice(0, limit).map(mapper).filter(Boolean).join('\n');
 }
 
-function buildCoachSystemPrompt(context, overview) {
+function buildCoachSystemPrompt(context, overview, { includeDetail = true } = {}) {
   const advice = buildAdviceSet(overview, context);
   const totals = context.activityTotals || {};
   const latestTraining = advice.latestTraining || {};
   const latestHealth = advice.latestHealth || {};
   const latestSleep = advice.latestSleep || {};
+  const lastActivity = context.lastRecordedActivity;
+  const lastRun = context.lastRecordedRun;
+  const scoped = context.scopedActivityTotals;
   const activitiesText = summarizeRows(context.activities || [], (activity) => {
     const item = normalizeActivity({
       ...activity,
@@ -879,9 +897,16 @@ function buildCoachSystemPrompt(context, overview) {
     '近期负荷或恢复记录缺失时，明确说明无法判断个人当前状态，不建议提升训练量或高强度训练。若用户仍想开始，只能给保守的通用入门选项。',
     '',
     `统计截至: ${context.asOf || '未知'}；最近有效记录: ${context.latestDate || '无'}；窗口: 运动 ${CONTEXT_WINDOW_DAYS} 天，健康/睡眠/训练状态 ${HEALTH_WINDOW_DAYS} 天。`,
+    ...(lastActivity ? [`最后一条运动（可能早于近期窗口）: ${lastActivity.date} ${activityTypeLabel(lastActivity.activityType)} ${formatKm(lastActivity.distanceM)}，${formatDuration(lastActivity.durationS)}。`] : []),
+    ...(lastRun ? [`最后一条跑步（可能早于近期窗口）: ${lastRun.date} ${formatKm(lastRun.distanceM)}，${formatDuration(lastRun.durationS)}，平均配速 ${averagePace(lastRun.distanceM, lastRun.durationS) || '无记录'}。`] : []),
+    ...(scoped ? [
+      `${scoped.label}统计（查询截至 ${scoped.end}）：所有运动共 ${scoped.activityCount} 次，已记录距离 ${scoped.distanceKm ?? '无'} km；其中跑步 ${scoped.runningCount} 次，已记录跑步距离 ${scoped.runningDistanceKm ?? '无'} km。`,
+      `该区间内全部运动实际记录日期：${scoped.firstDate || '无'} 至 ${scoped.lastDate || '无'}；跑步实际记录日期：${scoped.firstRunDate || '无'} 至 ${scoped.lastRunDate || '无'}。`
+    ] : []),
+    ...(context.unavailable ? ['近期运动及恢复数据查询暂不可用，相关数值不可当作零。'] : []),
     `综合风险等级: ${advice.hasRiskEvidence ? advice.riskLevel : '数据不足，无法判断'}；原因: ${advice.reasons.length ? advice.reasons.join('、') : advice.hasRiskEvidence ? '未发现明显风险信号' : '缺少近期负荷及恢复观测'}。`,
     `核心建议: ${advice.recommendation}`,
-    `本地模型输出(JSON): ${coachMlService.summarizePrediction(context.mlPrediction)}。其中 rulesBaseline 是规则安全基线，learnedSignals 是本地模型学习到的结构化信号，labelSourceSummary 表示训练标签来源质量。若 realLabelRatio 较低，说明模型仍主要依赖规则伪标签，回答时要更保守，不要包装成确定结论。该输出是训练建议的硬约束；当 riskLevel 为 orange 或 red 时，不要建议高强度间歇、长距离堆量或强行推进；当 weatherRisk 为 high 时，必须提醒降强度、补水并避开高温时段。`,
+    `就绪度规则评估(JSON): ${trainingReadinessService.summarizePrediction(context.mlPrediction)}。该输出是训练建议的安全基线；当 riskLevel 为 orange 或 red 时，不要建议高强度间歇、长距离堆量或强行推进；当 weatherRisk 为 high 时，必须提醒降强度、补水并避开高温时段。`,
     `负荷建议: ${advice.loadAdvice}`,
     `睡眠恢复建议: ${advice.sleepAdvice}`,
     `天气建议: ${advice.weatherAdvice}`,
@@ -891,10 +916,12 @@ function buildCoachSystemPrompt(context, overview) {
     `最新训练状态: ${latestTraining.snapshotDate || '--'}，状态 ${latestTraining.trainingStatus || '--'}，短期负荷 ${round(latestTraining.acuteTrainingLoad, 1) ?? '--'}，长期负荷 ${round(latestTraining.chronicTrainingLoad, 1) ?? '--'}，ACWR ${round(latestTraining.acuteChronicWorkloadRatio, 2) ?? '--'}。`,
     `最新健康: ${latestHealth.summaryDate || '--'}，压力 ${round(latestHealth.avgStressLevel, 1) ?? '--'}，静息心率 ${latestHealth.restingHeartRateBpm ?? '--'}，BodyBattery ${latestHealth.minBodyBattery ?? '--'}-${latestHealth.maxBodyBattery ?? '--'}。`,
     `最新睡眠: ${latestSleep.sleepDate || '--'}，评分 ${latestSleep.sleepScore ?? '--'}，时长 ${formatSleepDuration(latestSleep.durationS)}，HRV ${round(latestSleep.avgHrv, 1) ?? '--'}，状态 ${latestSleep.hrvStatus || '--'}。`,
-    '',
-    `近期运动明细:\n${activitiesText || '- 暂无近期运动记录'}`,
-    `近期睡眠:\n${sleepText || '- 暂无睡眠记录'}`,
-    `近期健康:\n${healthText || '- 暂无健康记录'}`
+    ...(includeDetail ? [
+      '',
+      `近期运动明细:\n${activitiesText || '- 暂无近期运动记录'}`,
+      `近期睡眠:\n${sleepText || '- 暂无睡眠记录'}`,
+      `近期健康:\n${healthText || '- 暂无健康记录'}`
+    ] : [])
   ].join('\n');
 }
 
@@ -912,7 +939,9 @@ function deepSeekEndpoint() {
   return `${config.ai.deepseekBaseUrl.replace(/\/+$/, '')}/chat/completions`;
 }
 
-async function callDeepSeekCompletion(messages, { temperature = 0.4, jsonMode = false, maxTokens, deadlineMs } = {}) {
+async function callDeepSeekCompletion(messages, {
+  temperature = 0.4, jsonMode = false, maxTokens, deadlineMs, includeModel = false, model = config.ai.deepseekModel, disableThinking = false
+} = {}) {
   if (!config.ai.deepseekApiKey) {
     throw new ApiError(503, 'DeepSeek API key is not configured', 'AI_PROVIDER_UNAVAILABLE');
   }
@@ -932,9 +961,10 @@ async function callDeepSeekCompletion(messages, { temperature = 0.4, jsonMode = 
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: config.ai.deepseekModel,
+        model,
         messages,
         temperature,
+        ...(disableThinking && { thinking: { type: 'disabled' } }),
         ...(jsonMode && { response_format: { type: 'json_object' } }),
         ...(maxTokens && { max_tokens: maxTokens }),
         stream: false
@@ -948,11 +978,14 @@ async function callDeepSeekCompletion(messages, { temperature = 0.4, jsonMode = 
 
     const payload = await response.json();
     const content = payload?.choices?.[0]?.message?.content;
-    if (!content || typeof content !== 'string') {
+    if (typeof content !== 'string' || !content.trim()) {
       throw new ApiError(503, 'DeepSeek returned empty content', 'AI_PROVIDER_UNAVAILABLE');
     }
 
-    return content.trim();
+    if (!includeModel) return content.trim();
+    const actualModel = typeof payload.model === 'string' && /^[\w./:-]{1,100}$/.test(payload.model)
+      ? payload.model : model;
+    return { content: content.trim(), model: actualModel };
   } finally {
     clearTimeout(timer);
   }
@@ -1026,7 +1059,7 @@ async function callDeepSeekDailyBrief(baseBrief, context, overview) {
 async function getHealth() {
   const deepseekConfigured = Boolean(config.ai.deepseekApiKey);
   const rulesAvailable = Boolean(config.ai.fallbackRules);
-  const coach = await coachMlService.getHealth();
+  const readiness = await trainingReadinessService.getHealth();
   return {
     status: deepseekConfigured || rulesAvailable ? 'ok' : 'unavailable',
     provider: 'deepseek',
@@ -1034,7 +1067,7 @@ async function getHealth() {
     model: config.ai.deepseekModel,
     deepseekConfigured,
     rulesAvailable,
-    coach,
+    readiness,
     fallbackRules: true
   };
 }
@@ -1177,14 +1210,15 @@ async function submitMorningReadiness(payload, user) {
 
 async function chat({ message }, user) {
   const question = sanitizeQuestion(message);
-  const warning = urgentExerciseWarning(question);
+  const urgent = urgentExerciseWarning(question);
+  const warning = urgent || coachAccessWarning(question);
   if (warning) {
     return {
       data: { role: 'assistant', content: warning, quickReplies: [] },
-      meta: { ai: { provider: 'rules', model: null, fallback: false, reason: 'urgent_safety' } }
+      meta: { ai: { provider: 'rules', model: null, fallback: false, reason: urgent ? 'urgent_safety' : 'data_scope' } }
     };
   }
-  if (hasSessionTimeConstraint(question) && /走跑|跑步|训练|课表|热身/.test(question) && /计划|方案|安排|(?:怎么|如何)(?:练|跑|走)/.test(question)) {
+  if (isDurationConstrainedPlan(question)) {
     return {
       data: {
         role: 'assistant',
@@ -1255,6 +1289,7 @@ module.exports = {
   submitMorningReadiness,
   analyzeActivity,
   callDeepSeekCompletion,
+  redactCoachText,
   __private: {
     buildCoachSystemPrompt,
     buildDailyBrief,

@@ -38,7 +38,7 @@ const authRoutes = [
   { path: '/status/trends', selector: '.trend-range-pills', name: 'statistics', requiredAnyText: ['Avg:', '暂无趋势数据'] },
   { path: '/status/calendar', selector: '.page-stack', name: 'calendar', requiredText: ['运动日历'] },
   { path: '/status/records', selector: '.page-stack', name: 'records', requiredText: ['成绩曲线'] },
-  { path: '/coach', selector: '.coach-chat-modes', name: 'coach', requiredText: ['计划助手', '日常问答'] },
+  { path: '/coach', selector: '.plan-agent__composer', name: 'coach', requiredText: ['AI 教练'] },
   { path: '/training-plans', selector: '.training-plan-page', name: 'training-plans', requiredAnyText: ['暂无训练课表', '我的训练计划'] },
   { path: '/explore', selector: '.explore-entry-grid', name: 'explore', requiredText: ['AI教练'] },
   { path: '/explore/events', selector: '.explore-tool-page', name: 'explore-events', requiredText: ['跑步赛事'] },
@@ -96,13 +96,9 @@ async function registerAccount(page) {
   await passwordInputs.nth(0).fill(password)
   await passwordInputs.nth(1).fill(password)
   await page.getByRole('button', { name: /注册并登录/ }).click()
-  await page.waitForURL(/\/today/, { timeout: 20000 })
+  await page.waitForURL('**/coach', { timeout: 20000 })
   await page.waitForLoadState('networkidle', { timeout: 20000 })
-  await page.waitForFunction(
-    () => !document.body.innerText.includes('正在准备今日建议'),
-    null,
-    { timeout: 30000 },
-  )
+  await page.getByRole('textbox', { name: '给教练发消息' }).waitFor()
   return { username, email, password }
 }
 
@@ -113,7 +109,7 @@ async function loginAccount(page, { email, password }) {
   await page.locator('input[autocomplete="email"]').fill(email)
   await page.locator('input[type="password"]').fill(password)
   await page.getByRole('button', { name: /^登录$/ }).click()
-  await page.waitForURL(/\/today/, { timeout: 20000 })
+  await page.waitForURL('**/coach', { timeout: 20000 })
   await page.waitForLoadState('networkidle', { timeout: 20000 })
   return { email }
 }
@@ -317,7 +313,7 @@ async function exercisePublicRegressions(context) {
     await page.reload()
     await page.getByRole('link', { name: '下载安卓版 APK' }).waitFor()
     await page.getByRole('link', { name: '使用网页版' }).click()
-    await page.waitForURL('**/login?redirect=/today')
+    await page.waitForURL((url) => url.pathname === '/login' && url.searchParams.get('redirect') === '/coach')
 
     const loginUrl = '**/api/auth/login'
     const invalid = (route) => route.fulfill({
@@ -352,7 +348,7 @@ async function exerciseRangeAndNavigation(context) {
     ])
     assert.ok(healthResponse.ok())
     assert.equal(await healthRange.getAttribute('aria-pressed'), 'true')
-    await page.getByText('返回', { exact: true }).click()
+    await page.getByRole('button', { name: '返回', exact: true }).click()
     await page.waitForURL(`${appUrl}/status`)
 
     const trendUrl = '**/api/stats/metric-trends?*'
@@ -371,11 +367,73 @@ async function exerciseRangeAndNavigation(context) {
     ])
     assert.ok(trendResponse.ok())
     assert.equal(await trendRange.getAttribute('aria-pressed'), 'true')
-    await page.getByText('返回', { exact: true }).click()
+    await page.getByRole('button', { name: '返回', exact: true }).click()
     await page.waitForURL(`${appUrl}/explore`)
   } finally {
     await page.close()
   }
+}
+
+async function exerciseCoachWorkspace(page) {
+  await page.goto(`${appUrl}/coach`)
+  const menu = page.getByRole('dialog', { name: 'SpAgent 工作区' })
+  const trigger = page.getByRole('button', { name: '打开工作区菜单' })
+  const composer = page.getByRole('textbox', { name: '给教练发消息' })
+  await composer.waitFor()
+  assert.equal(await menu.isVisible(), false)
+  await trigger.click()
+  await menu.getByRole('link', { name: '数据同步' }).waitFor()
+  await page.screenshot({ path: path.join(screenshotDir, 'coach-drawer.png'), animations: 'disabled' })
+  await page.keyboard.press('Escape')
+  await menu.waitFor({ state: 'hidden' })
+  await page.getByRole('button', { name: '打开工作区菜单', expanded: false }).waitFor()
+
+  const question = '我最近一次跑步是哪天？'
+  let release
+  const hold = new Promise(resolve => { release = resolve })
+  const messageEndpoint = /\/api\/agent\/conversations\/\d+\/messages$/
+  const delayReply = async route => {
+    if (route.request().method() === 'POST') await hold
+    await route.continue()
+  }
+  await page.route(messageEndpoint, delayReply)
+  try {
+    await composer.fill(question)
+    await page.getByRole('button', { name: '发送消息' }).click()
+    await page.getByRole('log').getByText(question, { exact: true }).waitFor()
+    await page.getByRole('status', { name: '教练正在回复' }).waitFor()
+    release()
+    await page.getByRole('log').getByRole('article', { name: 'AI 教练' }).waitFor()
+    assert.equal(await page.getByRole('log').getByText(question, { exact: true }).count(), 1)
+    assert.equal(await page.getByRole('button', { name: /确认保存|确认调整/ }).count(), 0)
+  } finally {
+    release()
+    await page.unroute(messageEndpoint, delayReply)
+  }
+
+  await composer.fill('这段草稿稍后发送')
+  const historyTab = page.getByRole('tab', { name: '历史' })
+  const filesTab = page.getByRole('tab', { name: '附件' })
+  const chatTab = page.getByRole('tab', { name: '对话' })
+  await historyTab.click()
+  await page.getByRole('tabpanel', { name: '历史' }).getByRole('button', { name: question }).waitFor()
+  assert.equal(await composer.isVisible(), false)
+  await historyTab.press('ArrowRight')
+  await page.getByRole('tabpanel', { name: '附件' }).getByText('当前对话暂无附件。').waitFor()
+  assert.equal(await filesTab.getAttribute('aria-selected'), 'true')
+  await chatTab.click()
+  assert.equal(await composer.inputValue(), '这段草稿稍后发送')
+  await trigger.click()
+  await menu.getByRole('link', { name: '我的运动' }).waitFor()
+  assert.equal(await menu.getByRole('button', { name: '新对话' }).count(), 0)
+  await menu.getByRole('link', { name: '我的运动' }).click()
+  await page.waitForURL('**/activities')
+  await menu.waitFor({ state: 'hidden' })
+  await trigger.click()
+  await menu.getByRole('link', { name: 'AI 教练' }).click()
+  await page.waitForURL('**/coach')
+  await page.getByRole('log').getByText(question, { exact: true }).waitFor()
+  await page.screenshot({ path: path.join(screenshotDir, 'coach-conversation.png') })
 }
 
 async function run() {
@@ -429,6 +487,7 @@ async function run() {
       await exerciseShoeFlow(page)
       await exerciseSettingsFlow(page)
       await exerciseRangeAndNavigation(context)
+      await exerciseCoachWorkspace(page)
 
       let counter = 1
       for (const route of authRoutes) {

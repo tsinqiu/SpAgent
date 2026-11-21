@@ -1,5 +1,17 @@
 <template>
   <div class="page-stack">
+    <nav class="status-subnav" aria-label="状态深度分析入口">
+      <RouterLink
+        v-for="item in statusSubpages"
+        :key="item.to"
+        :to="item.to"
+        class="status-subnav__pill"
+      >
+        <component :is="item.icon" :size="15" aria-hidden="true" />
+        <span>{{ item.label }}</span>
+      </RouterLink>
+    </nav>
+
     <StateBlock v-if="loading" title="正在加载状态" message="正在汇总健康、负荷、纪录和日历。" />
     <StateBlock
       v-else-if="!hasData && errors.length"
@@ -48,12 +60,16 @@
           <button type="button" class="rq-detail-link" @click="goPerformanceDetail">详情</button>
         </div>
         <strong>{{ runningPowerDisplay }}</strong>
-        <div class="performance-gradient-track" :style="scoreMarkerStyle" aria-label="跑力等级">
-          <span>基础</span>
-          <span>稳定</span>
-          <span>强劲</span>
-          <span>巅峰</span>
-          <i class="score-band__marker" aria-hidden="true"></i>
+        <div class="rq-score-gauge" :style="scoreMarkerStyle" aria-label="跑力等级">
+          <div class="performance-gradient-track">
+            <i class="score-band__marker" aria-hidden="true"></i>
+          </div>
+          <div class="rq-score-gauge__labels" aria-hidden="true">
+            <span>基础</span>
+            <span>稳定</span>
+            <span>强劲</span>
+            <span>巅峰</span>
+          </div>
         </div>
       </section>
 
@@ -149,6 +165,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { CalendarDays, HeartPulse, LineChart, Trophy } from '@lucide/vue'
 import { useRouter } from 'vue-router'
 
 import MetricCard from '@/components/MetricCard.vue'
@@ -160,6 +177,12 @@ import { getPerformanceProfile } from '@/services/performance'
 import { deriveStatusBadge } from '@/utils/productInsights'
 
 const router = useRouter()
+const statusSubpages = [
+  { label: '健康度', to: '/status/health', icon: HeartPulse },
+  { label: '趋势', to: '/status/trends', icon: LineChart },
+  { label: '最佳榜单', to: '/status/records', icon: Trophy },
+  { label: '运动月历', to: '/status/calendar', icon: CalendarDays },
+]
 const health = ref({})
 const loadRows = ref([])
 const personalBests = ref({})
@@ -330,12 +353,10 @@ onMounted(load)
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: var(--space-5);
-  border-radius: var(--radius-xl);
+  padding: 20px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border);
-  background:
-    radial-gradient(140% 120% at 0% 0%, rgb(51 181 255 / 0.12), transparent 55%),
-    var(--panel);
+  background: var(--panel);
   box-shadow: var(--shadow-sm);
 }
 .status-hero__top {
@@ -469,33 +490,32 @@ onMounted(load)
   cursor: pointer;
 }
 
+.rq-score-gauge {
+  display: grid;
+  gap: 8px;
+}
+
 .performance-gradient-track {
   position: relative;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  align-items: center;
-  min-height: 34px;
+  height: 8px;
   overflow: visible;
   border-radius: 999px;
   background: linear-gradient(90deg, #38bdf8 0%, #10b981 50%, #f59e0b 74%, #ef4444 100%);
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.18);
-}
-
-.performance-gradient-track span {
-  position: relative;
-  z-index: 1;
-  min-width: 0;
-  color: #fff;
-  font-size: 12px;
-  font-weight: 900;
-  text-align: center;
-  text-shadow: 0 1px 2px rgb(0 0 0 / 0.18);
 }
 
 .performance-gradient-track .score-band__marker {
   top: 50%;
   left: var(--score-position);
   transform: translate(-50%, -50%);
+}
+
+.rq-score-gauge__labels {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  font-size: 11.5px;
+  font-weight: 560;
+  color: var(--muted);
+  text-align: center;
 }
 
 .status-health-grid {
@@ -553,5 +573,34 @@ onMounted(load)
 .training-load-targets b {
   min-width: 0;
   font-size: 20px;
+}
+
+.status-subnav {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.status-subnav__pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0 8px;
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 580;
+  text-decoration: none;
+  box-shadow: var(--shadow-sm);
+  white-space: nowrap;
+}
+
+.status-subnav__pill svg {
+  color: var(--green-strong);
+  flex: 0 0 auto;
 }
 </style>

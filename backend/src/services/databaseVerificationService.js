@@ -37,6 +37,15 @@ const REQUIRED_SCHEMA = Object.freeze({
   DailyHealthSummaries: { columns: ['user_id', 'summary_date'] },
   SleepSummaries: { columns: ['user_id', 'sleep_date'] },
   TrainingStatusSnapshots: { columns: ['user_id', 'snapshot_date'] },
+  AiCoachFeedback: {
+    columns: ['user_id', 'suggestion_date', 'suggestion_type', 'feedback', 'raw_json'],
+    foreignKeys: ['FK_AiCoachFeedback_user']
+  },
+  MorningReadinessFeedback: {
+    columns: ['user_id', 'feedback_date', 'readiness_score', 'muscle_soreness', 'mental_state', 'training_willingness'],
+    indexes: ['UQ_MorningReadinessFeedback_user_date'],
+    foreignKeys: ['FK_MorningReadinessFeedback_user']
+  },
   TrainingPlans: {
     columns: ['id', 'user_id', 'start_date', 'week_phases', 'status', 'version', 'active_owner_id'],
     indexes: ['UQ_TrainingPlans_active_owner'],
@@ -73,7 +82,7 @@ const REQUIRED_SCHEMA = Object.freeze({
     foreignKeys: ['FK_AgentConversations_user']
   },
   AgentMessages: {
-    columns: ['id', 'conversation_id', 'client_message_id', 'role', 'cards_json'],
+    columns: ['id', 'conversation_id', 'client_message_id', 'role', 'content', 'cards_json'],
     indexes: ['UQ_AgentMessages_turn_role'],
     foreignKeys: ['FK_AgentMessages_conversation']
   },
@@ -81,6 +90,20 @@ const REQUIRED_SCHEMA = Object.freeze({
     columns: ['id', 'user_id', 'status', 'expires_at', 'result_plan_id', 'payload_json'],
     indexes: ['UQ_AgentActions_message'],
     foreignKeys: ['FK_AgentActions_conversation_owner', 'FK_AgentActions_message']
+  },
+  AthleteMemories: {
+    columns: ['id', 'user_id', 'category', 'content', 'source', 'updated_at'],
+    indexes: ['IX_AthleteMemories_user_updated'],
+    foreignKeys: ['FK_AthleteMemories_user']
+  },
+  MarathonEvents: {
+    columns: ['id', 'source_site', 'source_event_id', 'name', 'event_date', 'city', 'race_category', 'distance_label', 'source_url', 'crawled_at'],
+    indexes: ['UQ_MarathonEvents_source', 'IX_MarathonEvents_date_category']
+  },
+  UserMarathonEvents: {
+    columns: ['id', 'user_id', 'event_key', 'name', 'event_date', 'city', 'distance', 'goal', 'source_url'],
+    indexes: ['UQ_UserMarathonEvents_user_key', 'IX_UserMarathonEvents_user_date'],
+    foreignKeys: ['FK_UserMarathonEvents_user']
   },
   TrainingSessionActivities: {
     columns: ['session_id', 'activity_id', 'link_method', 'comparison_json'],
@@ -150,7 +173,7 @@ async function verifyDatabase({ query = db.query, databaseName = config.db.datab
     }
 
     const columns = await query(
-      `SELECT TABLE_NAME AS tableName, COLUMN_NAME AS columnName
+      `SELECT TABLE_NAME AS tableName, COLUMN_NAME AS columnName, DATA_TYPE AS dataType
        FROM INFORMATION_SCHEMA.COLUMNS
        WHERE TABLE_SCHEMA = ?`,
       [databaseName]
@@ -173,6 +196,10 @@ async function verifyDatabase({ query = db.query, databaseName = config.db.datab
       indexes: findMissing(indexes, 'indexName', 'indexes'),
       foreignKeys: findMissing(foreignKeys, 'constraintName', 'foreignKeys')
     };
+    const coachContent = columns.find(row => toKey(row.tableName, row.columnName) === 'agentmessages.content');
+    if (coachContent && !['text', 'mediumtext', 'longtext'].includes(coachContent.dataType)) {
+      missing.columns.push('AgentMessages.content (TEXT)');
+    }
     const missingItems = Object.values(missing).flat();
 
     if (missingItems.length) {

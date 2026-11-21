@@ -1,0 +1,277 @@
+[
+  {
+    "id": "running-walk-run",
+    "sport": "running",
+    "title": "用走跑交替开始跑步",
+    "keywords": ["入门", "新手", "零基础", "走跑", "跑走", "5公里", "5km", "休息日", "循序渐进"],
+    "text": "初学者可以把短段慢跑和步行交替安排，用步行段把呼吸调回舒适水平。NHS 的入门方案分周逐步延长跑段，并在两次跑步之间安排休息日。先选能重复完成的走跑节奏，再考虑延长跑段。",
+    "source": {
+      "title": "NHS 跑步入门方案",
+      "url": "https://www.nhs.uk/better-health/get-active/get-running-with-couch-to-5k/couch-to-5k-running-plan/"
+    }
+  },
+  {
+    "id": "running-easy-effort",
+    "sport": "running",
+    "title": "以体感与心率控制轻松跑强度",
+    "keywords": ["轻松跑", "有氧", "耐力", "配速", "呼吸", "低强度", "跑量", "基础", "E配速", "有氧基础"],
+    "text": "轻松跑（Easy / Zone 2）的核心目的是扩展毛细血管网、线粒体密度和肌腱耐受度，同时尽量降低中枢疲劳。体感上应能完整说出长句（谈话测试通过），通常对应最大心率的 65%–78% 或比马拉松配速慢 45–75 秒/公里。跑得太快会落入“垃圾灰区”，既练不到阈值又拖累下一次质量课恢复。",
+    "source": {
+      "title": "世界田联有氧体能指南",
+      "url": "https://worldathletics.org/personal-best/performance/how-build-aerobic-fitness-tips-advice-running"
+    }
+  },
+  {
+    "id": "running-warm-up",
+    "sport": "running",
+    "title": "跑前动态热身与跑后冷身放松",
+    "keywords": ["热身", "跑前", "跑后", "结束", "放松", "冷身", "动态拉伸", "加速跑", "strides"],
+    "text": "质量课（间歇/阈值/比赛）前建议安排 10–15 分钟轻松慢跑热身 + 关节动态激活（摆腿、高抬腿、踢臀）+ 3–4 组 80–100 米放松加速跑（Strides），提高神经募集与肌肉温度。跑后安排 5–10 分钟慢跑或步行冷身，随后再做温和静态拉伸，帮助静脉回流和心率回落。",
+    "source": {
+      "title": "NHS 跑步热身与放松",
+      "url": "https://www.nhs.uk/better-health/get-active/get-running-with-couch-to-5k/couch-to-5k-running-plan/"
+    }
+  },
+  {
+    "id": "running-polarized-80-20",
+    "sport": "running",
+    "title": "80/20 极化训练与强度分配原则",
+    "keywords": ["极化训练", "80/20", "强度分配", "金字塔训练", "灰区", "周跑量", "耐力进阶", "负荷平衡"],
+    "text": "高水平耐力运动员（Stephen Seiler 经典研究）的周训练中，约 75%–80% 的总时长或次数处于低强度有氧（Zone 1–2），约 15%–20% 集中在乳酸阈值（Zone 4）或最大摄氧量（Zone 5）质量课。保证低强度足够慢，才能在关键质量课里跑出高质量，并显著降低过度训练和伤病风险。",
+    "source": {
+      "title": "Seiler 耐力训练强度分配综述 (IJSPP)",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/20861519/"
+    }
+  },
+  {
+    "id": "running-lactate-threshold",
+    "sport": "running",
+    "title": "乳酸阈值跑（Tempo / T配速）与巡航间歇",
+    "keywords": ["乳酸阈值", "阈值跑", "节奏跑", "tempo", "T配速", "LT", "巡航间歇", "乳酸清除", "破三", "半马", "10公里"],
+    "text": "乳酸阈值（Lactate Threshold）是身体产生乳酸与清除乳酸刚好达到平衡的最高配速，通常相当于全力持续跑约 50–60 分钟的配速（约最大心率 85%–90%）。经典练法包括：连续 20–30 分钟阈值跑，或巡航间歇（如 4–6 × 2km 或 3 × 3km，间歇慢跑 1–2 分钟）。提高乳酸阈值是提升 10K、半马与全马成绩最直接的杠杆。",
+    "source": {
+      "title": "Jack Daniels 跑步训练体系 (VDOT 原则)",
+      "url": "https://vdoto2.com/learn-more/training-definitions"
+    }
+  },
+  {
+    "id": "running-vo2max-intervals",
+    "sport": "running",
+    "title": "最大摄氧量（VO2max）间歇训练",
+    "keywords": ["间歇跑", "VO2max", "最大摄氧量", "I配速", "亚索800", "400米", "800米", "1000米", "速度耐力", "中长跑"],
+    "text": "VO2max 间歇（I 配速，接近 3000m–5000m 比赛配速）用于提升心肺最大供氧上限。单组有效刺激时间通常控制在 2–5 分钟（如 5–6 × 1000m 或 6–8 × 800m），组间慢跑恢复时间为跑步时长的 50%–100%。单次课 I 配速总量一般不超过周跑量的 8% 或 10km，以免造成过高肌骨冲击。",
+    "source": {
+      "title": "Jack Daniels VDOT 间歇训练定义",
+      "url": "https://vdoto2.com/learn-more/training-definitions"
+    }
+  },
+  {
+    "id": "running-aerobic-decoupling",
+    "sport": "running",
+    "title": "有氧解耦（心率漂移 / Aerobic Decoupling）解读",
+    "keywords": ["心率漂移", "有氧解耦", "decoupling", "掉速", "长距离", "LSD", "效率系数", "耐力基础", "后半程"],
+    "text": "有氧解耦（Pw:HR 或 Pa:HR）衡量一次稳态长距离跑中，前半程与后半程“速度/心率效率系数（EF）”的衰减幅度。解耦率低于 5% 说明当前配速与距离下有氧耐力非常扎实；5%–8% 属于正常中度疲劳；高于 8% 则提示起跑配速偏快、高温高湿脱水、糖原耗尽或专项有氧续航仍需夯实。",
+    "source": {
+      "title": "TrainingPeaks 有氧解耦与心率漂移指南",
+      "url": "https://www.trainingpeaks.com/blog/aerobic-endurance-and-decoupling/"
+    }
+  },
+  {
+    "id": "running-marathon-periodization",
+    "sport": "running",
+    "title": "半马/全马周期化备赛与长距离进阶",
+    "keywords": ["马拉松", "全马", "半马", "周期化", "备赛", "破三", "长距离", "MP配速", "马拉松配速", "减量周"],
+    "text": "典型的 12–16 周马拉松备赛分为四个阶段：基础期（夯实有氧跑量与力量）→ 强化期（加入阈值跑与间歇提升速度储备）→ 专项期（28–35km 长距离并在后段融入马拉松目标配速 MP）→ 赛前减量期。每 3–4 周安排 1 个减量周（跑量降 20%–30%）让身体超量恢复。",
+    "source": {
+      "title": "世界田联马拉松训练周期原则",
+      "url": "https://worldathletics.org/personal-best/performance"
+    }
+  },
+  {
+    "id": "running-tapering",
+    "sport": "running",
+    "title": "赛前减量（Taper）的科学方法",
+    "keywords": ["减量", "taper", "赛前", "比赛周", "超量恢复", "备赛", "蓄力"],
+    "text": "比赛前 2–3 周（全马约 2–3 周，半马/10K 约 7–14 天）应逐步削减总跑量（约降 30%–50%），但保留少量短时间、目标配速或更快配速的“保鲜刺激”（如 4 × 1km MP 或几组轻松加速跑），维持神经肌肉张力与跑感，同时彻底清除累积疲劳、补满肌糖原。",
+    "source": {
+      "title": "Mujika & Padilla 赛前减量运动科学综述",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/12875983/"
+    }
+  },
+  {
+    "id": "running-pacing-negative-split",
+    "sport": "running",
+    "title": "比赛配速策略：均匀配速与负劈（Negative Split）",
+    "keywords": ["配速策略", "负劈", "negative split", "前半程", "后半程", "撞墙", "掉速", "起跑", "比赛分配"],
+    "text": "路跑破 PB 的最优策略通常是前 3–5 公里克制在目标配速或慢 2–4 秒/公里，中段稳步巡航，最后 25% 根据体感微幅提速（均匀配速或轻微负劈）。前半程盲目快 10 秒/公里会导致过早动员无氧糖酵解、加速肌糖原消耗，后程往往以每公里掉速 20–40 秒的代价偿还。",
+    "source": {
+      "title": "世界田联比赛配速策略建议",
+      "url": "https://worldathletics.org/personal-best/performance"
+    }
+  },
+  {
+    "id": "running-heat-humidity",
+    "sport": "running",
+    "title": "高温高湿环境下的配速与补水调整",
+    "keywords": ["高温", "高湿", "夏天", "夏训", "出汗", "补水", "电解质", "中暑", "心率飙升"],
+    "text": "气温高于 20°C 且湿度较高时，皮肤散热分流大量血液，同等配速下心率会抬升 5–15 bpm。夏训或闷热天气应改以“心率或体感（RPE）”而非死盯凉爽天气配速来执行有氧与阈值课，每小时按出汗量补充 400–800 ml 含钠电解质水，并给身体 7–14 天热习服过渡期。",
+    "source": {
+      "title": "ACSM 高温运动与补水立场声明",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/17277604/"
+    }
+  },
+  {
+    "id": "running-cadence-form",
+    "sport": "running",
+    "title": "步频、步幅与跑步经济性",
+    "keywords": ["步频", "步幅", "触地", "经济性", "跑姿", "垂直振幅", "跨步", "省力"],
+    "text": "高效跑姿的核心是避免过度跨步（脚落点远离身体重心正下方）带来的刹车冲击。多数中高水平跑者在轻松跑时步频处于 170–185 spm，比赛配速时随速度自然升至 180–195 spm。如果步频偏低且伴随膝踝不适，可尝试小幅提升 5% 步频来降低单步落地负荷，而非机械强求固定数字。",
+    "source": {
+      "title": "Running Economy & Biomechanics Review",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/25429894/"
+    }
+  },
+  {
+    "id": "running-fueling-nutrition",
+    "sport": "running",
+    "title": "长距离与马拉松碳水补给策略",
+    "keywords": ["能量胶", "补给", "碳水", "撞墙", "糖原", "补水", "电解质", "盐丸", "赛前碳水"],
+    "text": "超过 75–90 分钟的高强度或长距离跑步需要外源碳水维持血糖与后程配速。建议每小时摄入 30–60g 碳水（进阶跑者经肠胃训练后可达 60–90g/h，约每 30–35 分钟一支能量胶配水）。务必在平时 20km+ 长距离课中提前演练比赛同款能量胶，避免比赛日出现肠胃不适。",
+    "source": {
+      "title": "ACSM / IOC 运动营养与耐力补给共识",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/26891166/"
+    }
+  },
+  {
+    "id": "recovery-hrv-guided",
+    "sport": "general",
+    "title": "用 HRV（心率变异性）与静息心率指导训练恢复",
+    "keywords": ["HRV", "心率变异性", "静息心率", "RHR", "恢复", "疲劳", "过度训练", "自主神经", "状态"],
+    "text": "夜间 HRV 反映副交感神经恢复状态，需看 7 天滑动均值与个人基线区间的关系而非单日波动。若 HRV 连续多日显著低于个人基线，且伴随静息心率升高 4–5 bpm 以上或睡眠缩水，说明交感神经紧张或累积疲劳偏高，此时把高强度质量课替换为轻松跑或休息日，往往能收获更好的长期适应。",
+    "source": {
+      "title": "Plews 等 HRV 指导耐力训练综述 (Sports Medicine)",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/23700072/"
+    }
+  },
+  {
+    "id": "recovery-acwr-load",
+    "sport": "general",
+    "title": "急慢性负荷比（ACWR）与防伤加量控制",
+    "keywords": ["ACWR", "训练负荷", "急性负荷", "慢性负荷", "负荷比", "加量", "过量", "受伤风险", "CTL", "ATL"],
+    "text": "急慢性工作负荷比（ACWR = 近期 7 天急性负荷 / 长期 28 天慢性负荷）是监控负荷突增的核心指标。一般认为 0.8–1.3 处于高效且低伤病风险的“最佳甜区（Optimal）”；超过 1.5 时肌骨劳损风险显著上升；长期低于 0.8 则可能出现体能微降或处于赛前减量阶段。",
+    "source": {
+      "title": "Gabbett 急慢性负荷比与运动伤病防护 (BJSM)",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/26758673/"
+    }
+  },
+  {
+    "id": "recovery-sleep-performance",
+    "sport": "general",
+    "title": "睡眠时长与结构对耐力恢复的影响",
+    "keywords": ["睡眠", "深睡", "REM", "熬夜", "失眠", "恢复", "生长激素", "熬夜后跑步"],
+    "text": "深睡期是生长激素分泌与肌纤维修复的高峰，REM 睡眠负责神经运动记忆整合。大跑量周期建议保证每晚 7.5–9 小时睡眠。偶发单晚少睡（如 < 5–6 小时）通常不会立刻摧毁有氧能力，但会拉高主观疲劳感与失误风险，当天宜降低强度或改为轻松有氧，并在随后 1–2 晚补足睡眠债。",
+    "source": {
+      "title": "IOC 运动员睡眠与恢复专家共识 (BJSM)",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/33144349/"
+    }
+  },
+  {
+    "id": "injury-load-management",
+    "sport": "running",
+    "title": "常见跑者劳损（髂胫束/胫骨痛/跟腱）的负荷管理",
+    "keywords": ["伤病", "膝盖", "髂胫束", "ITBS", "胫骨", "足底筋膜", "跟腱", "酸痛", "疼痛", "恢复跑"],
+    "text": "绝大多数跑步劳损源于局部组织承受的机械冲击超过了当前适应速度。区分良性肌肉酸痛（双侧对称、热身后减轻）与警示性疼痛（单侧尖锐痛、跑步中加剧、导致步态代偿或次日晨僵加重）。出现警示性疼痛时应及时降量、避免连续高强度或下坡冲击，并用骑行/游泳维持有氧，必要时寻求运动康复师或医生面诊。",
+    "source": {
+      "title": "BJSM 跑步相关损伤负荷管理共识",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/27377273/"
+    }
+  },
+  {
+    "id": "strength-for-runners",
+    "sport": "strength_training",
+    "title": "跑者专项力量训练：单腿稳定、髋臀与爆发力",
+    "keywords": ["跑者力量", "力量训练", "单腿", "保加利亚蹲", "硬拉", "提踵", "核心", "跑步经济性", "防伤", "举铁"],
+    "text": "多项 Meta 分析证实，每周 2 次高质量抗阻与超等长训练（如单腿硬拉、保加利亚分腿蹲、提踵/比目鱼肌强化、臀中肌稳定、轻量跳箱）可在不明显增加体重的前提下提升 2%–8% 跑步经济性并显著降低下肢伤病。建议安排在质量跑同日晚些时候或次日轻松跑后，与下一次核心间歇课留出 24–48 小时恢复窗口。",
+    "source": {
+      "title": "Blagrove 等力量训练对长跑经济性影响综述 (Sports Medicine)",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/29249083/"
+    }
+  },
+  {
+    "id": "strength-get-started",
+    "sport": "strength_training",
+    "title": "力量训练先建立规律练习与渐进超负荷",
+    "keywords": ["力量", "举铁", "举重", "健身", "入门", "新手", "全身", "练几天", "训练频次", "渐进超负荷"],
+    "text": "成年人开始力量训练时，优先选择可以长期坚持的安排，让主要肌群每周至少练习 2 天，优先复合动作（深蹲、硬拉、推举、划船、核心稳定）。动作质量稳定后再逐步增加重量、组数或动作难度，不必每次练到力竭。",
+    "source": {
+      "title": "ACSM 阻力训练立场声明综述",
+      "url": "https://acsm.org/resistance-training-guidelines-update-2026/"
+    }
+  },
+  {
+    "id": "strength-home-equipment",
+    "sport": "strength_training",
+    "title": "用自重与弹力带做居家力量训练",
+    "keywords": ["自重", "徒手", "家庭", "居家", "家里", "弹力带", "无器械", "健身房", "在家"],
+    "text": "居家训练可以用自重或弹力带提供阻力（如箭步蹲、单腿臀桥、侧平板、弹力带蟹步、台阶提踵）。先挑选能用稳定动作做完的难度，在可控动作范围内反复练习，再通过放慢离心节奏或改单侧动作进阶。",
+    "source": {
+      "title": "ACSM 阻力训练计划要点",
+      "url": "https://acsm.org/effective-resistance-training-program-infographic/"
+    }
+  },
+  {
+    "id": "cycling-cross-training",
+    "sport": "cycling",
+    "title": "骑行作为跑者的无冲击有氧交叉训练",
+    "keywords": ["骑行", "交叉训练", "有氧", "无冲击", "恢复骑", "踏频", "FTP", "甜区"],
+    "text": "骑行能在几乎零地面冲击的条件下累积高容量心肺有氧负荷，非常适合作为跑者的主动恢复或伤病替代训练。建议维持 85–95 rpm 的轻齿比高踏频以减少股四头肌过度酸胀；若要等效跑步有氧刺激，骑行时长通常约为跑步的 1.3–1.5 倍。",
+    "source": {
+      "title": "Cycling UK 自行车变速与踏频指南",
+      "url": "https://www.cyclinguk.org/article/beginners-guide-gears"
+    }
+  },
+  {
+    "id": "cycling-climbs",
+    "sport": "cycling",
+    "title": "骑行爬坡的挡位与节奏控制",
+    "keywords": ["骑车上坡", "骑行爬坡", "爬坡", "坡段", "降档", "降挡", "低挡", "轻挡", "换挡", "山路"],
+    "text": "接近坡脚前提前切到较轻挡位，进入坡段后维持均匀功率与顺畅踏频，避免起坡处盲目猛踩导致乳酸提前堆积。长坡可交替坐姿巡航与短时摇车舒缓肌群。",
+    "source": {
+      "title": "Cycling UK 爬坡入门指南",
+      "url": "https://www.cyclinguk.org/article/beginners-guide-climbing-hills-bike"
+    }
+  },
+  {
+    "id": "swimming-first-sessions",
+    "sport": "swimming",
+    "title": "泳池训练的节奏、CSS 配速与交叉恢复",
+    "keywords": ["游泳", "泳池", "新手", "入门", "耐力", "CSS", "交叉训练", "休息"],
+    "text": "游泳是极佳的全身无负重恢复手段，水压还有助于促进下肢静脉回流。泳池训练可采用分段重复游（如 8–12 × 100m，组间休 15–20 秒）保持划水效率；进阶者可通过 400m 与 200m 测试推算临界泳速（CSS）作为有氧阈值基准。",
+    "source": {
+      "title": "U.S. Masters Swimming 游泳训练指南",
+      "url": "https://www.usms.org/fitness-and-training/articles-and-videos/articles/how-to-start-a-swimming-routine"
+    }
+  },
+  {
+    "id": "swimming-freestyle-breathing",
+    "sport": "swimming",
+    "title": "自由泳的水下呼气与侧向换气",
+    "keywords": ["自由泳", "爬泳", "换气", "呼气", "呼吸", "抬头", "滚转", "憋气"],
+    "text": "自由泳换气关键在于脸入水后持续缓慢呼气、不要憋气，随身体核心自然纵轴滚转顺势侧头吸气，保持一只护目镜在水面附近，避免抬头导致髋部与下肢下沉增加水阻。",
+    "source": {
+      "title": "U.S. Masters Swimming 泳姿基础",
+      "url": "https://www.usms.org/fitness-and-training/guides/swimming-101/the-stroke-basics"
+    }
+  },
+  {
+    "id": "general-talk-test-rpe",
+    "sport": "general",
+    "title": "用谈话测试与 RPE 自觉疲劳度校准训练强度",
+    "keywords": ["谈话测试", "RPE", "强度", "轻松", "中等", "高强度", "气喘", "心率漂移", "心率不准"],
+    "text": "当光电心率出现漂移或受高温/咖啡因影响时，谈话测试和 RPE（1–10 分主观用力感）是最可靠的交叉校验：轻松有氧应为 RPE 3–4（可完整聊天）；马拉松/有氧强化约 RPE 5–6（短句交流）；乳酸阈值约 RPE 7–8（仅能蹦出几个词）；最大摄氧量间歇约 RPE 9。",
+    "source": {
+      "title": "CDC 运动强度评估与谈话测试",
+      "url": "https://www.cdc.gov/physical-activity-basics/measuring/index.html"
+    }
+  }
+]

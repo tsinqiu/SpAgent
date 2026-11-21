@@ -3,7 +3,7 @@
   "short_name": "SpAgent",
   "description": "面向跑者的训练负荷、恢复状态和运动记录 App",
   "lang": "zh-CN",
-  "start_url": "/today",
+  "start_url": "/coach",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
@@ -12,15 +12,15 @@
   "categories": ["health", "fitness", "sports"],
   "icons": [
     {
-      "src": "/icons/spagent-icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "src": "/icons/spagent-icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icons/spagent-maskable.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "src": "/icons/spagent-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
       "purpose": "maskable"
     }
   ]

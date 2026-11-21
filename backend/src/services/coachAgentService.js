@@ -1,11 +1,17 @@
+const { createHash } = require('node:crypto');
+const { LRUCache } = require('lru-cache');
 const db = require('../db');
+const config = require('../config');
 const { ApiError } = require('../errors');
 const { readPlan, localToday } = require('./trainingPlanInput');
 const trainingPlanService = require('./trainingPlanService');
-const { planTurn } = require('./coachAgent');
+const { runCoachHarness } = require('./coachHarness');
+const telemetry = require('./coachTelemetryService');
+const { buildContextPulse } = require('./coachVisualCards');
 
 const pageSize = 40;
 const inFlightMessages = new Map();
+const pulseCache = new LRUCache({ max: 200, ttl: 30_000 });
 const cardColumns = `
   a.id AS actionId, a.action_type AS actionType, a.payload_json AS actionPayload, a.status AS storedStatus,
   CASE WHEN a.status = 'proposed' AND a.expires_at <= UTC_TIMESTAMP(3) THEN 'expired' ELSE a.status END AS actionStatus,
@@ -35,7 +41,10 @@ function actionView(row) {
 }
 
 function messageView(row) {
-  const { cards, meta } = decode(row.payload);
+  const { cards, meta, attachment } = decode(row.payload);
+  const displayCards = (cards || []).map(card => card.type === 'tool_status' && typeof card.summary === 'string'
+    ? { ...card, summary: card.summary.replace(/，排除演示(?:数据|记录)(?=。?$)/, '') }
+    : card);
   let proposal = null;
   if (row.actionId) {
     const payload = decode(row.actionPayload);
@@ -45,7 +54,8 @@ function messageView(row) {
   }
   return {
     id: row.id, role: row.role, content: row.content, createdAt: row.createdAt, meta,
-    cards: proposal ? [...cards, proposal] : cards
+    ...(row.role === 'user' && attachment && { attachment }),
+    cards: proposal ? [...displayCards, proposal] : displayCards
   };
 }
 
@@ -67,6 +77,46 @@ async function createConversation(userId) {
   return row;
 }
 
+async function renameConversation(userId, conversationId, title) {
+  const clean = typeof title === 'string' ? title.replace(/[\p{Cc}\p{Cf}]/gu, ' ').replace(/\s+/g, ' ').trim() : '';
+  if (!clean || clean.length > 80) {
+    throw new ApiError(400, '对话标题需在 1–80 字之间。', 'INVALID_CONVERSATION_TITLE');
+  }
+  const result = await db.query(
+    'UPDATE AgentConversations SET title = ? WHERE id = ? AND user_id = ?',
+    [clean, conversationId, userId]
+  );
+  if (!result.affectedRows) throw missing();
+  const [row] = await db.query(
+    'SELECT id, title, updated_at AS updatedAt FROM AgentConversations WHERE id = ? AND user_id = ?',
+    [conversationId, userId]
+  );
+  return row;
+}
+
+async function deleteConversation(userId, conversationId) {
+  const result = await db.query(
+    'DELETE FROM AgentConversations WHERE id = ? AND user_id = ?',
+    [conversationId, userId]
+  );
+  if (!result.affectedRows) throw missing();
+  return { deleted: true, id: Number(conversationId) };
+}
+
+async function getContextPulse(user) {
+  const cacheKey = `pulse:${user.id}`;
+  const cached = pulseCache.get(cacheKey);
+  if (cached) return cached;
+  const profile = await telemetry.getAthleteProfile(user.id, localToday());
+  const pulse = buildContextPulse(profile, user);
+  pulseCache.set(cacheKey, pulse);
+  return pulse;
+}
+
+function invalidatePulse(userId) {
+  pulseCache.delete(`pulse:${userId}`);
+}
+
 async function requireConversation(query, userId, conversationId, lock = false) {
   const [row] = await query(
     `SELECT id, title FROM AgentConversations WHERE id = ? AND user_id = ?${lock ? ' FOR UPDATE' : ''}`,
@@ -86,13 +136,13 @@ async function listMessages(userId, conversationId, before) {
   return { messages, nextBefore: rows.length > pageSize ? messages[0].id : null };
 }
 
-async function replay(query, userId, conversationId, clientMessageId, text) {
+async function replay(query, userId, conversationId, clientMessageId, text, inputFingerprint) {
   const rows = await query(`
     ${selectMessages}
     WHERE c.user_id = ? AND m.conversation_id = ? AND m.client_message_id = ?
     ORDER BY m.id`, [userId, conversationId, clientMessageId]);
   if (!rows.length) return null;
-  if (rows[0].content !== text) {
+  if (rows[0].content !== text || decode(rows[0].payload).inputFingerprint !== inputFingerprint) {
     throw new ApiError(409, 'This message ID was already used', 'AGENT_MESSAGE_CONFLICT');
   }
   return { messages: rows.map(messageView) };
@@ -107,18 +157,54 @@ async function latestAssistantMessage(query, userId, conversationId) {
   return row;
 }
 
-async function persistMessage(userId, conversationId, { clientMessageId, message }) {
+async function recentConversationMessages(userId, conversationId, assistantId) {
+  const rows = await db.query(`
+    SELECT m.role, m.content, m.cards_json AS payload FROM AgentMessages m
+    JOIN AgentConversations c ON c.id = m.conversation_id
+    WHERE c.user_id = ? AND m.conversation_id = ? AND m.id <= ?
+    ORDER BY m.id DESC LIMIT 12`, [userId, conversationId, assistantId]);
+  return rows.reverse().map(({ role, content, payload }) => {
+    const data = decode(payload);
+    return {
+      role, content, includesAttachment: Boolean(data?.attachment),
+      activityQuery: role === 'assistant' ? data?.activityQuery : undefined,
+      coachScope: role === 'assistant' ? data?.coachScope : undefined
+    };
+  });
+}
+
+function attachmentLabel(file) {
+  const utf8 = Buffer.from(file.originalname, 'latin1').toString('utf8');
+  const name = utf8.includes('\uFFFD') ? file.originalname : utf8;
+  return { name: name.replace(/[\p{Cc}\p{Cf}]/gu, '').slice(0, 150) || '附件' };
+}
+
+async function persistMessage(userId, conversationId, { clientMessageId, message, attachment, profile }, inputFingerprint, { onEvent, abortSignal } = {}) {
   await requireConversation(db.query, userId, conversationId);
-  const prior = await replay(db.query, userId, conversationId, clientMessageId, message);
+  const prior = await replay(db.query, userId, conversationId, clientMessageId, message, inputFingerprint);
   if (prior) return prior;
   const previous = await latestAssistantMessage(db.query, userId, conversationId);
-  const pending = previous ? decode(previous.payload).clarification : null;
-  const turn = await planTurn(message, userId, pending);
+  const history = previous ? await recentConversationMessages(userId, conversationId, previous.id) : [];
+  const turn = await runCoachHarness({
+    message,
+    userId,
+    history,
+    profile,
+    attachment,
+    aiConfig: config.ai,
+    onEvent,
+    abortSignal
+  });
+  if (turn.aborted && (!turn.content || turn.content === '已停止生成。')) {
+    return { messages: [], aborted: true };
+  }
+  const displayAttachment = attachment ? attachmentLabel(attachment) : undefined;
+  invalidatePulse(userId);
 
   return db.transaction(async connection => {
     const query = async (sql, args) => (await connection.execute(sql, args))[0];
     const conversation = await requireConversation(query, userId, conversationId, true);
-    const saved = await replay(query, userId, conversationId, clientMessageId, message);
+    const saved = await replay(query, userId, conversationId, clientMessageId, message, inputFingerprint);
     if (saved) return saved;
     const current = await latestAssistantMessage(query, userId, conversationId);
     if (previous?.id !== current?.id) {
@@ -127,37 +213,49 @@ async function persistMessage(userId, conversationId, { clientMessageId, message
 
     await query(`
       INSERT INTO AgentMessages (conversation_id, client_message_id, role, content, cards_json)
-      VALUES (?, ?, 'user', ?, ?)`, [conversationId, clientMessageId, message, '{"cards":[]}']);
+      VALUES (?, ?, 'user', ?, ?)`, [conversationId, clientMessageId, message,
+      JSON.stringify({ cards: [], attachment: displayAttachment, inputFingerprint })]);
     const assistant = await query(`
       INSERT INTO AgentMessages (conversation_id, client_message_id, role, content, cards_json)
       VALUES (?, ?, 'assistant', ?, ?)`,
-    [conversationId, clientMessageId, turn.content, JSON.stringify({ cards: turn.cards, meta: turn.meta, clarification: turn.clarification })]);
+    [conversationId, clientMessageId, turn.content, JSON.stringify({
+      cards: turn.cards || [], meta: turn.meta, attachment: attachment ? true : undefined
+    })]);
     if (turn.proposal) {
       await query(`
         INSERT INTO AgentActions (conversation_id, user_id, assistant_message_id, action_type, payload_json, expires_at)
         VALUES (?, ?, ?, ?, ?, UTC_TIMESTAMP(3) + INTERVAL 30 MINUTE)`,
       [conversationId, userId, assistant.insertId, turn.proposal.type || 'create_plan', JSON.stringify(turn.proposal)]);
     }
-    const title = conversation.title === '训练计划对话' ? Array.from(message).slice(0, 40).join('') : conversation.title;
+    const title = ['训练计划对话', '新对话'].includes(conversation.title)
+      ? Array.from(message).slice(0, 40).join('')
+      : conversation.title;
     await query(
       'UPDATE AgentConversations SET title = ?, updated_at = CURRENT_TIMESTAMP(3) WHERE id = ? AND user_id = ?',
       [title, conversationId, userId]
     );
-    return replay(query, userId, conversationId, clientMessageId, message);
+    return replay(query, userId, conversationId, clientMessageId, message, inputFingerprint);
   });
 }
 
-async function postMessage(userId, conversationId, input) {
+async function postMessage(userId, conversationId, input, { onEvent, abortSignal } = {}) {
   const key = `${userId}:${conversationId}:${input.clientMessageId}`;
+  const { profile, attachment } = input;
+  let fingerprint;
+  if (profile || attachment) {
+    const hash = createHash('sha256').update(JSON.stringify([profile, attachment?.originalname, attachment?.mimetype]));
+    if (attachment) hash.update(attachment.buffer);
+    fingerprint = hash.digest('hex');
+  }
   const existing = inFlightMessages.get(key);
   if (existing) {
-    if (existing.message !== input.message) {
+    if (existing.message !== input.message || existing.fingerprint !== fingerprint) {
       throw new ApiError(409, 'This message ID was already used', 'AGENT_MESSAGE_CONFLICT');
     }
     return existing.result;
   }
-  const result = persistMessage(userId, conversationId, input).finally(() => inFlightMessages.delete(key));
-  inFlightMessages.set(key, { message: input.message, result });
+  const result = persistMessage(userId, conversationId, input, fingerprint, { onEvent, abortSignal }).finally(() => inFlightMessages.delete(key));
+  inFlightMessages.set(key, { message: input.message, fingerprint, result });
   return result;
 }
 
@@ -210,8 +308,19 @@ function changeAction(userId, actionId, confirm) {
     await connection.execute(`
       UPDATE AgentActions SET status = ?, confirmed_at = UTC_TIMESTAMP(3), result_plan_id = ?, failure_code = ?
       WHERE id = ? AND user_id = ?`, [status, planId, failureCode, actionId, userId]);
+    invalidatePulse(userId);
     return actionView({ ...row, actionStatus: status, resultPlanId: planId, failureCode });
   });
 }
 
-module.exports = { listConversations, createConversation, listMessages, postMessage, changeAction };
+module.exports = {
+  listConversations,
+  createConversation,
+  renameConversation,
+  deleteConversation,
+  getContextPulse,
+  invalidatePulse,
+  listMessages,
+  postMessage,
+  changeAction
+};

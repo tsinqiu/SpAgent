@@ -1,14 +1,10 @@
-const fs = require('node:fs');
-const path = require('node:path');
-const config = require('../config');
 const db = require('../db');
 const activityService = require('./activityService');
-const coachMlService = require('./coachMlService');
+const trainingReadinessService = require('./trainingReadinessService');
 
 const MODEL_VERSION = 'performance-v1';
 const CONTEXT_WINDOW_DAYS = 28;
 const HEALTH_WINDOW_DAYS = 14;
-const REFERENCE_PATH = path.resolve(__dirname, '..', '..', 'ml', 'reference', 'fitrec_reference_report.json');
 
 function toNumber(value, fallback = null) {
   const numberValue = Number(value);
@@ -280,14 +276,6 @@ async function getContext(user) {
   };
 }
 
-function readFitrecReference(referencePath = REFERENCE_PATH) {
-  try {
-    return JSON.parse(fs.readFileSync(referencePath, 'utf8'));
-  } catch (_error) {
-    return null;
-  }
-}
-
 function runningActivities(context) {
   return (context.activities || []).filter((activity) =>
     String(activity.activityType || '').toLowerCase().includes('running')
@@ -489,7 +477,6 @@ function buildDataQuality(metrics, context, fitrecReference) {
   if (!heartRateCount) warnings.push('缺少跑步心率，心率-配速效率不可用');
   if (!vo2Count) warnings.push('缺少 VO2max，表现能力估计更保守');
   if (cadenceCount < Math.max(2, runCount * 0.4)) warnings.push('动作技术数据不足，技术分为估计值');
-  if (!fitrecReference) warnings.push('FitRec 外部参考缺失，已使用个人基线默认值');
 
   return {
     score: scoreValue,
@@ -501,8 +488,7 @@ function buildDataQuality(metrics, context, fitrecReference) {
       cadenceRuns: cadenceCount,
       powerRuns: powerCount,
       sleepDays14d: sleepCount,
-      hrvDays14d: hrvCount,
-      fitrecReference: Boolean(fitrecReference)
+      hrvDays14d: hrvCount
     }
   };
 }
@@ -548,24 +534,23 @@ function buildKeyMetrics(metrics) {
 async function getPerformanceProfile(user) {
   const overview = await activityService.getDashboardOverview(visibleOverviewFilters(user));
   const context = await getContext(user);
-  const mlPrediction = await coachMlService.predict({ overview, context });
-  const fitrecReference = readFitrecReference();
+  const readiness = await trainingReadinessService.predict({ overview, context });
   const metrics = buildRunningMetrics(context, overview);
   metrics.overview = overview;
-  const runningPower = scoreRunningPower(metrics, fitrecReference);
+  const runningPower = scoreRunningPower(metrics, null);
   const fivePower = buildFivePower(metrics, runningPower.score);
-  const dataQuality = buildDataQuality(metrics, context, fitrecReference);
-  const confidence = round((dataQuality.score / 100) * 0.55 + (toNumber(mlPrediction.confidence, 0.62) || 0.62) * 0.45, 4);
+  const dataQuality = buildDataQuality(metrics, context, null);
+  const confidence = round((dataQuality.score / 100) * 0.55 + (toNumber(readiness.confidence, 0.72) || 0.72) * 0.45, 4);
 
   return {
-    trainingIndex: buildTrainingIndex(mlPrediction),
+    trainingIndex: buildTrainingIndex(readiness),
     runningPower,
     fivePower,
     dataQuality,
     keyMetrics: buildKeyMetrics(metrics),
     model: {
       modelVersion: MODEL_VERSION,
-      provider: 'local_performance_model',
+      provider: 'rules_performance_engine',
       confidence
     }
   };
@@ -575,10 +560,9 @@ async function getHealth() {
   return {
     status: 'ok',
     modelVersion: MODEL_VERSION,
-    provider: 'local_performance_model',
+    provider: 'rules_performance_engine',
     supportedOutputs: ['trainingIndex', 'runningPower', 'fivePower'],
-    requiresTrainingArtifact: false,
-    referenceAvailable: Boolean(readFitrecReference(config.ml?.fitrecReferencePath || REFERENCE_PATH))
+    requiresTrainingArtifact: false
   };
 }
 

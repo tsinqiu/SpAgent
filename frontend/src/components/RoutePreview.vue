@@ -9,9 +9,77 @@
     </div>
 
     <div v-if="validPoints.length && !mapError" ref="mapRef" class="route-map" aria-label="轨迹地图预览"></div>
-    <div v-else-if="validPoints.length && mapError" class="route-map route-map-empty route-map-error" aria-label="轨迹地图加载失败">
-      <strong>地图加载失败</strong>
-      <span>{{ mapError }}</span>
+    <div v-else-if="validPoints.length && mapError" class="route-fallback-card" aria-label="离线配速轨迹图预览">
+      <div class="route-fallback-badge">
+        <span class="route-fallback-dot" aria-hidden="true"></span>
+        <span>{{ fallbackNotice }}</span>
+      </div>
+      <svg
+        v-if="svgRoute"
+        class="route-fallback-svg"
+        :viewBox="`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`"
+        role="img"
+        aria-label="运动配速轨迹图"
+      >
+        <defs>
+          <pattern id="route-grid-pattern" width="32" height="32" patternUnits="userSpaceOnUse">
+            <path d="M 32 0 L 0 0 0 32" fill="none" stroke="rgba(148, 163, 184, 0.16)" stroke-width="1" />
+          </pattern>
+        </defs>
+        <rect x="0" y="0" :width="SVG_WIDTH" :height="SVG_HEIGHT" fill="url(#route-grid-pattern)" />
+
+        <!-- Subtle route shadow -->
+        <polyline
+          :points="svgRoute.fullPolyline"
+          fill="none"
+          stroke="rgba(15, 23, 42, 0.18)"
+          stroke-width="8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+
+        <!-- Speed-colored GPS segments -->
+        <polyline
+          v-for="(seg, idx) in svgRoute.segments"
+          :key="idx"
+          :points="seg.points"
+          fill="none"
+          :stroke="seg.color"
+          stroke-width="4.2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+
+        <!-- Kilometer markers -->
+        <g v-for="km in svgRoute.kmMarkers" :key="km.kilometer">
+          <circle :cx="km.x" :cy="km.y" r="8.5" fill="#0f172a" stroke="#ffffff" stroke-width="1.6" />
+          <text :x="km.x" :y="km.y + 3.2" text-anchor="middle" fill="#ffffff" font-size="8.5" font-weight="700">
+            {{ km.kilometer }}
+          </text>
+        </g>
+
+        <!-- Start marker -->
+        <g v-if="svgRoute.start">
+          <circle :cx="svgRoute.start.x" :cy="svgRoute.start.y" r="12" fill="#16a34a" stroke="#ffffff" stroke-width="2.4" />
+          <text :x="svgRoute.start.x" :y="svgRoute.start.y + 4" text-anchor="middle" fill="#ffffff" font-size="10.5" font-weight="800">起</text>
+        </g>
+
+        <!-- Finish marker -->
+        <g v-if="svgRoute.finish">
+          <circle :cx="svgRoute.finish.x" :cy="svgRoute.finish.y" r="12" fill="#ef4444" stroke="#ffffff" stroke-width="2.4" />
+          <text :x="svgRoute.finish.x" :y="svgRoute.finish.y + 4" text-anchor="middle" fill="#ffffff" font-size="10.5" font-weight="800">终</text>
+        </g>
+      </svg>
+      <div class="route-fallback-footer">
+        <div class="route-speed-legend" aria-label="配速色标">
+          <span>慢</span>
+          <i class="route-speed-legend__bar" aria-hidden="true"></i>
+          <span>快</span>
+        </div>
+        <span class="route-fallback-meta">
+          轨迹里程 {{ fallbackDistanceLabel }} · 高精度 SVG 预览
+        </span>
+      </div>
     </div>
     <div v-else class="route-map route-map-empty" aria-label="轨迹地图预览为空">
       <strong>暂无可用地图轨迹</strong>
@@ -206,11 +274,19 @@ async function getAmapConfig() {
   return publicConfig?.maps?.amap || {}
 }
 
-function configureAmapSecurity(securityCode) {
-  if (!securityCode || typeof window === 'undefined') return
+function configureAmapSecurity(amapConfig = {}) {
+  if (typeof window === 'undefined') return
+  if (amapConfig.serviceHost) {
+    window._AMapSecurityConfig = {
+      ...(window._AMapSecurityConfig || {}),
+      serviceHost: amapConfig.serviceHost,
+    }
+    return
+  }
+  if (!amapConfig.securityCode) return
   window._AMapSecurityConfig = {
     ...(window._AMapSecurityConfig || {}),
-    securityJsCode: securityCode,
+    securityJsCode: amapConfig.securityCode,
   }
 }
 
@@ -224,7 +300,7 @@ async function loadAmap() {
     throw new Error('缺少 AMAP_JS_API_KEY，请在 backend/.env 中配置高德 JS API Key。')
   }
 
-  configureAmapSecurity(amapConfig.securityCode)
+  configureAmapSecurity(amapConfig)
   if (window.AMap?.Map) return window.AMap
 
   if (!window.__spagentAmapLoadPromise) {
@@ -478,6 +554,88 @@ async function refreshMap() {
   }
 }
 
+const SVG_WIDTH = 640
+const SVG_HEIGHT = 340
+const SVG_PAD = 36
+
+const fallbackNotice = computed(() => {
+  if (mapError.value.includes('AMAP_JS_API_KEY')) {
+    return '轨迹已渲染 · 配置高德 JS API Key 后可叠加真实街道底图'
+  }
+  return '底图暂不可用 · 已切换为离线高清配速轨迹'
+})
+
+const fallbackDistanceLabel = computed(() => {
+  if (validPoints.value.length < 2) return '--'
+  const totalM = Math.max(0, (validPoints.value.at(-1)?.distanceM || 0) - (validPoints.value[0]?.distanceM || 0))
+  return `${(totalM / 1000).toFixed(2)} km`
+})
+
+const svgRoute = computed(() => {
+  if (!validPoints.value.length) return null
+
+  const lats = validPoints.value.map((p) => p.displayLatitude)
+  const lons = validPoints.value.map((p) => p.displayLongitude)
+  const minLat = Math.min(...lats)
+  const maxLat = Math.max(...lats)
+  const minLon = Math.min(...lons)
+  const maxLon = Math.max(...lons)
+  const midLatRad = ((minLat + maxLat) / 2) * (Math.PI / 180)
+  const lonCos = Math.max(Math.cos(midLatRad), 0.2)
+
+  const spanX = Math.max((maxLon - minLon) * lonCos, 1e-6)
+  const spanY = Math.max(maxLat - minLat, 1e-6)
+  const usableW = SVG_WIDTH - SVG_PAD * 2
+  const usableH = SVG_HEIGHT - SVG_PAD * 2
+  const scale = Math.min(usableW / spanX, usableH / spanY)
+  const offsetX = SVG_PAD + (usableW - spanX * scale) / 2
+  const offsetY = SVG_PAD + (usableH - spanY * scale) / 2
+
+  const project = (lon, lat) => ({
+    x: Number((offsetX + (lon - minLon) * lonCos * scale).toFixed(1)),
+    y: Number((offsetY + (maxLat - lat) * scale).toFixed(1)),
+  })
+
+  // Downsample full polyline slightly if huge for crisp SVG performance
+  const step = Math.max(1, Math.floor(validPoints.value.length / 450))
+  const fullPolyline = validPoints.value
+    .filter((_, i) => i % step === 0 || i === validPoints.value.length - 1)
+    .map((p) => {
+      const pt = project(p.displayLongitude, p.displayLatitude)
+      return `${pt.x},${pt.y}`
+    })
+    .join(' ')
+
+  const segments = groupedRouteSegments.value.map((seg) => ({
+    color: seg.color,
+    points: seg.path
+      .map(([lon, lat]) => {
+        const pt = project(lon, lat)
+        return `${pt.x},${pt.y}`
+      })
+      .join(' '),
+  }))
+
+  const first = validPoints.value[0]
+  const last = validPoints.value.at(-1)
+  const start = project(first.displayLongitude, first.displayLatitude)
+  const finish = last && (last.displayLongitude !== first.displayLongitude || last.displayLatitude !== first.displayLatitude)
+    ? project(last.displayLongitude, last.displayLatitude)
+    : null
+
+  // Space out km badges so they don't overlap on marathons
+  const totalKm = kilometerMarkers.value.length
+  const kmStep = totalKm > 25 ? 5 : totalKm > 12 ? 2 : 1
+  const kmMarkers = kilometerMarkers.value
+    .filter((m) => m.kilometer % kmStep === 0)
+    .map((m) => ({
+      kilometer: m.kilometer,
+      ...project(m.longitude, m.latitude),
+    }))
+
+  return { fullPolyline, segments, start, finish, kmMarkers }
+})
+
 onMounted(refreshMap)
 
 watch(() => props.points, refreshMap, { deep: true })
@@ -487,3 +645,77 @@ onBeforeUnmount(() => {
   destroyMap()
 })
 </script>
+
+<style scoped>
+.route-fallback-card {
+  position: relative;
+  display: grid;
+  gap: 0;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border, #e2e8f0) 90%, transparent);
+  background: linear-gradient(160deg, #0f172a 0%, #17253d 55%, #0f1f2e 100%);
+  color: #e2e8f0;
+}
+
+.route-fallback-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #cbd5e1;
+  background: rgba(15, 23, 42, 0.72);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.route-fallback-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.22);
+  flex: none;
+}
+
+.route-fallback-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 640 / 340;
+}
+
+.route-fallback-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 9px 14px;
+  font-size: 12px;
+  color: #cbd5e1;
+  background: rgba(15, 23, 42, 0.78);
+  border-top: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.route-speed-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 700;
+}
+
+.route-speed-legend__bar {
+  display: inline-block;
+  width: 78px;
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #2563eb 0%, #06b6d4 28%, #22c55e 52%, #f59e0b 78%, #ef4444 100%);
+}
+
+.route-fallback-meta {
+  color: #94a3b8;
+  font-variant-numeric: tabular-nums;
+}
+</style>

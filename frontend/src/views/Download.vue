@@ -2,7 +2,7 @@
   <main class="download-page">
     <section class="download-shell">
       <div class="download-brand">
-        <img class="download-brand__icon" src="/icons/spagent-icon.svg" alt="" />
+        <img class="download-brand__icon" src="/icons/spagent-icon.png" alt="" />
         <strong>SpAgent</strong>
       </div>
 
@@ -30,7 +30,7 @@
         </span>
       </button>
 
-      <RouterLink class="download-return" to="/today">
+      <RouterLink class="download-return" to="/coach">
         <ArrowLeft :size="16" aria-hidden="true" />
         <span>使用网页版</span>
       </RouterLink>

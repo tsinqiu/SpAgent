@@ -50,6 +50,15 @@ test('frontend declares Capacitor dependencies and native app scripts', () => {
   assert.match(packageJson.scripts['android:sync'] || '', /sync-android-server\.ps1/)
 })
 
+test('native touch feedback is light and limited to opted-in direct actions', async () => {
+  assert.ok(packageJson.dependencies['@capacitor/haptics'])
+  const feedback = await source('src/services/touchFeedback.js')
+  assert.match(feedback, /Capacitor\.isNativePlatform/)
+  assert.match(feedback, /event\.isTrusted/)
+  assert.match(feedback, /\[data-haptic\]/)
+  assert.match(feedback, /Haptics\.impact\(\{ style: ImpactStyle\.Light \}\)/)
+})
+
 test('Capacitor config targets a SpAgent Android app from Vite dist', () => {
   assert.match(capacitorConfig, /appId:\s*['"]com\.spagent\.app['"]/)
   assert.match(capacitorConfig, /appName:\s*['"]SpAgent['"]/)

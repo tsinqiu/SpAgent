@@ -46,7 +46,7 @@ function isNativeRuntime() {
 const routes = [
   {
     path: '/',
-    redirect: () => (isNativeRuntime() || hasAuthToken() ? '/today' : '/download'),
+    redirect: () => (isNativeRuntime() || hasAuthToken() ? '/coach' : '/download'),
   },
   {
     path: '/download',
@@ -136,7 +136,7 @@ const routes = [
     path: '/coach',
     name: 'coach',
     component: Coach,
-    meta: { title: '教练', requiresAuth: true },
+    meta: { title: 'AI 教练', requiresAuth: true },
   },
   {
     path: '/training-plans',
@@ -148,7 +148,7 @@ const routes = [
     path: '/explore',
     name: 'explore',
     component: Explore,
-    meta: { title: '探索', requiresAuth: true },
+    meta: { title: '课程与路线', requiresAuth: true },
   },
   {
     path: '/explore/events',
@@ -254,7 +254,7 @@ installAuthFailureHandler(router)
 router.beforeEach(async (to) => {
   if (to.name === 'download') {
     if (isNativeRuntime()) {
-      return hasAuthToken() ? { name: 'today' } : { name: 'login' }
+      return hasAuthToken() ? { name: 'coach' } : { name: 'login' }
     }
     return true
   }
@@ -289,7 +289,7 @@ router.beforeEach(async (to) => {
   }
 
   if (to.meta.requiresAdmin && authSession.user?.role !== 'admin') {
-    return { name: 'today' }
+    return { name: 'coach' }
   }
 
   return true

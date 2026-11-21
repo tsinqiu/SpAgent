@@ -12,7 +12,10 @@
         <li v-for="reason in guidance.reasons" :key="reason">{{ reason }}</li>
       </ul>
       <details class="weekly-guidance-basis">
-        <summary>训练依据</summary>
+        <summary>
+          <span>训练依据</span>
+          <ChevronDown :size="15" class="weekly-guidance-chevron" aria-hidden="true" />
+        </summary>
         <p v-if="guidance.execution">
           本周已计入 {{ guidance.execution.due }} 项任务，完成 {{ guidance.execution.completed }} 项、
           跳过 {{ guidance.execution.skipped }} 项、逾期待完成 {{ guidance.execution.outstanding }} 项。
@@ -43,6 +46,7 @@
 
 <script setup>
 import { onMounted, ref } from 'vue'
+import { ChevronDown } from '@lucide/vue'
 import StateBlock from '@/components/StateBlock.vue'
 import { getWeeklyGuidance } from '@/services/trainingPlans'
 import { formatDistance } from '@/utils/formatters'
@@ -88,8 +92,21 @@ p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
 .weekly-guidance-summary { color: var(--green-strong); text-wrap: pretty; }
 .weekly-guidance-reasons,
 .weekly-guidance-basis ul { margin: 0; padding-inline-start: 1.2em; font-size: 13px; }
-.weekly-guidance-basis { border-top: 1px solid var(--border); }
-.weekly-guidance-basis summary { min-height: 44px; align-content: center; cursor: pointer; font-weight: 700; }
+.weekly-guidance-basis { border-top: 0.5px solid var(--border); }
+.weekly-guidance-basis summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+  cursor: pointer;
+  font-size: 13.5px;
+  font-weight: 560;
+  color: var(--text);
+  list-style: none;
+}
+.weekly-guidance-basis summary::-webkit-details-marker { display: none; }
+.weekly-guidance-chevron { color: var(--muted); transition: transform 160ms ease; }
+.weekly-guidance-basis[open] .weekly-guidance-chevron { transform: rotate(180deg); }
 .weekly-guidance-basis ul { margin-block: 6px; }
 .weekly-guidance-action { justify-self: start; min-height: 44px; }
 </style>

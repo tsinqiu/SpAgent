@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const request = require('supertest');
 const createApp = require('../src/app');
-const { createCoachAgent } = require('../src/services/coachAgent');
+const { runCoachHarness } = require('../src/services/coachHarness');
 const contextService = require('../src/services/trainingContextService');
 const planService = require('../src/services/trainingPlanService');
 const guidanceService = require('../src/services/weeklyGuidanceService');
@@ -113,13 +113,15 @@ test('coach previews the server revision via local rules and rejects a stale rep
     assert.equal(userId, owner);
     return { guidance: { asOf: localToday() }, revision };
   });
-  const agent = createCoachAgent({
-    aiConfig: { agentUseDeepseek: true, deepseekApiKey: 'synthetic' },
-    complete: async () => assert.fail('Weekly review must use local rules')
+  const turn = await runCoachHarness({
+    message: `预览 ${date} 周报的下周训练调整`,
+    userId: owner
   });
-  const turn = await agent(`预览 ${date} 周报的下周训练调整`, owner);
   assert.deepEqual(turn.proposal, { type: 'revise_plan', revision });
-  const stale = await agent('预览 2000-01-03 周报的下周训练调整', owner);
+  const stale = await runCoachHarness({
+    message: '预览 2000-01-03 周报的下周训练调整',
+    userId: owner
+  });
   assert.match(stale.content, /已经过期/);
   assert.equal(stale.proposal, undefined);
   assert.equal(review.mock.callCount(), 1);

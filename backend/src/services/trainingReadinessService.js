@@ -1,31 +1,9 @@
-const fs = require('node:fs');
-const { spawn } = require('node:child_process');
-const path = require('node:path');
-const config = require('../config');
-
-const MODEL_VERSION = 'coach-v1';
-const FEATURE_SCHEMA_PATH = path.resolve(__dirname, '..', '..', 'ml', 'feature_schema.json');
-const FEATURE_SCHEMA = JSON.parse(fs.readFileSync(FEATURE_SCHEMA_PATH, 'utf8'));
-const FEATURE_NAMES = FEATURE_SCHEMA.features.map((feature) => feature.name);
+const RULE_ENGINE_VERSION = 'readiness-rules-v1';
 const predictionCache = new Map();
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
 const RISK_ORDER = { green: 0, yellow: 1, orange: 2, red: 3 };
 const WEATHER_RISK_ORDER = { low: 0, medium: 1, high: 2 };
-const DEFAULT_ATHLETE_PROFILE = {
-  age: 21,
-  halfMarathonPbMinutes: 79,
-  marathonPbMinutes: 176,
-  athleteTier: 'competitive_amateur',
-  trainingTolerance: 'high'
-};
-const DEFAULT_LABEL_SOURCE_SUMMARY = {
-  aggregate: { rule_pseudo: 1 },
-  realLabelRatio: 0,
-  pseudoLabelRatio: 1,
-  perceivedEffortCoverage: 0,
-  sampleWeights: { user_feedback: 5, delayed_objective: 3, rule_pseudo: 1 }
-};
 
 function toNumber(value, fallback = 0) {
   const numberValue = Number(value);
@@ -86,16 +64,6 @@ function avgBy(rows, mapper) {
   return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
 }
 
-function quantile(values, q) {
-  const sorted = values.map(nullableNumber).filter((value) => value !== null).sort((a, b) => a - b);
-  if (!sorted.length) return null;
-  const index = (sorted.length - 1) * q;
-  const lower = Math.floor(index);
-  const upper = Math.ceil(index);
-  if (lower === upper) return sorted[lower];
-  return sorted[lower] + (sorted[upper] - sorted[lower]) * (index - lower);
-}
-
 function percentileRank(value, values) {
   const numericValue = nullableNumber(value);
   const numericValues = values.map(nullableNumber).filter((item) => item !== null);
@@ -112,11 +80,11 @@ function safeRatio(value, baseline, fallback = 0) {
   return round(numericValue / numericBaseline, 3) || 0;
 }
 
-function dailyActivityTotals(activities, latestDate, days, { includeLatest = false } = {}) {
+function dailyActivityTotals(activities, latestDate, days) {
   const totals = new Map();
   for (const activity of valuesInWindow(activities, latestDate, 'localDate', days)) {
     const diff = daysBetween(latestDate, activity.localDate);
-    if (diff === null || (!includeLatest && diff === 0)) continue;
+    if (diff === null || diff === 0) continue;
     const day = dateOnly(activity.localDate);
     if (!day) continue;
     const current = totals.get(day) || { date: day, load: 0, distanceKm: 0, durationH: 0 };
@@ -126,23 +94,6 @@ function dailyActivityTotals(activities, latestDate, days, { includeLatest = fal
     totals.set(day, current);
   }
   return [...totals.values()].sort((a, b) => String(a.date).localeCompare(String(b.date)));
-}
-
-function normalizeAthleteProfile(profile = {}) {
-  return {
-    ...DEFAULT_ATHLETE_PROFILE,
-    ...(config.ml?.athleteProfile || {}),
-    ...profile
-  };
-}
-
-function classifyRelativePerceivedEffort(features = {}) {
-  const load = toNumber(features.load_1d, 0);
-  const percentile = toNumber(features.session_load_percentile_90d, load > 0 ? 50 : 0);
-  if (load <= 0 && toNumber(features.hard_minutes_7d, 0) <= 0) return 'easy';
-  if (percentile < 40) return 'easy';
-  if (percentile <= 80) return 'moderate';
-  return 'hard';
 }
 
 function coverage(rows, latestDate, dateKey, days, predicate = () => true) {
@@ -199,11 +150,8 @@ function assessWeather(features) {
     reasons.push('高温高湿');
   }
 
-  if (conditionRisk >= 2) {
-    reasons.push('雷雨或恶劣天气');
-  } else if (conditionRisk >= 1) {
-    reasons.push('降雨或大风');
-  }
+  if (conditionRisk >= 2) reasons.push('雷雨或恶劣天气');
+  else if (conditionRisk >= 1) reasons.push('降雨或大风');
 
   const level = score >= 2 ? 'high' : score >= 1 ? 'medium' : 'low';
   return { level, score, reasons };
@@ -224,33 +172,18 @@ function buildFeatureSet(overview = {}, context = {}) {
   const latestLoad = overview.trainingLoad?.at(-1) || {};
   const features = {};
 
-  for (const days of [1, 3, 7, 14, 28]) {
+  for (const days of [1, 7, 28]) {
     const rows = valuesInWindow(activities, latestDate, 'localDate', days);
     features[`distance_${days}d`] = round(sumBy(rows, (row) => row.distanceM) / 1000, 3) || 0;
-    features[`duration_${days}d`] = round(sumBy(rows, (row) => row.durationS) / 3600, 3) || 0;
     features[`load_${days}d`] = round(sumBy(rows, (row) => row.activityTrainingLoad), 2) || 0;
   }
 
-  const rows7d = valuesInWindow(activities, latestDate, 'localDate', 7);
-  const activeDays7d = new Set(rows7d.map((row) => dateOnly(row.localDate)).filter(Boolean)).size;
-  features.hard_minutes_7d = round(sumBy(rows7d.filter((row) =>
-    toNumber(row.activityTrainingLoad, 0) >= 120 || toNumber(row.avgHeartRateBpm, 0) >= 155
-  ), (row) => row.durationS) / 60, 1) || 0;
-  features.rest_days_7d = clamp(7 - activeDays7d, 0, 7);
   const history90 = dailyActivityTotals(activities, latestDate, 90);
   const history28 = dailyActivityTotals(activities, latestDate, 28);
   const historyForPercentiles = history90.length ? history90 : dailyActivityTotals(activities, latestDate, 365);
   features.session_load_percentile_90d = percentileRank(features.load_1d, historyForPercentiles.map((item) => item.load));
-  features.distance_percentile_90d = percentileRank(features.distance_1d, historyForPercentiles.map((item) => item.distanceKm));
-  features.duration_percentile_90d = percentileRank(features.duration_1d, historyForPercentiles.map((item) => item.durationH));
   const longRunBaseline = Math.max(0, ...history28.map((item) => item.distanceKm));
   features.long_run_ratio_28d = safeRatio(features.distance_1d, longRunBaseline, 1);
-  const loadP80 = quantile(historyForPercentiles.map((item) => item.load), 0.8);
-  const previousHardDay = loadP80 === null
-    ? null
-    : historyForPercentiles.slice().reverse().find((item) => item.load >= loadP80);
-  const hardGap = previousHardDay ? daysBetween(latestDate, previousHardDay.date) : 90;
-  features.hard_session_gap_days = clamp(hardGap ?? 90, 0, 365);
   features.load_spike_ratio_28d = safeRatio(features.load_1d, avgBy(history28, (item) => item.load), 1);
 
   features.atl = round(latestLoad.atl ?? latestTraining.acuteTrainingLoad, 2) || 0;
@@ -264,8 +197,6 @@ function buildFeatureSet(overview = {}, context = {}) {
 
   features.sleep_score = round(latestSleep.sleepScore, 1) || 0;
   features.sleep_duration_h = round(toNumber(latestSleep.durationS, 0) / 3600, 2) || 0;
-  features.deep_sleep_minutes = round(toNumber(latestSleep.deepSleepS, 0) / 60, 1) || 0;
-  features.rem_sleep_minutes = round(toNumber(latestSleep.remSleepS, 0) / 60, 1) || 0;
   const sleep3d = valuesInWindow(sleepRows, latestDate, 'sleepDate', 3);
   features.sleep_debt_3d = round(sumBy(sleep3d, (row) => Math.max(0, 7 - toNumber(row.durationS, 0) / 3600)), 2) || 0;
   features.avg_hrv = round(latestSleep.avgHrv, 1) || 0;
@@ -276,7 +207,6 @@ function buildFeatureSet(overview = {}, context = {}) {
   const restingHrBaseline = avgBy(healthRows, (row) => row.restingHeartRateBpm);
   features.resting_hr_delta = restingHrBaseline > 0 ? round(features.resting_hr - restingHrBaseline, 2) : 0;
   features.avg_stress = round(latestHealth.avgStressLevel ?? latestSleep.avgSleepStress, 1) || 0;
-  features.body_battery_morning = round(latestHealth.maxBodyBattery, 1) || 0;
   features.body_battery_drained = round(latestHealth.bodyBatteryDrained, 1) || 0;
 
   features.temperature_c = round(latestWeather.temperatureC, 1) || 0;
@@ -285,28 +215,22 @@ function buildFeatureSet(overview = {}, context = {}) {
   features.weather_condition_risk = weatherConditionRisk(latestWeather.weatherCondition);
   const weather = assessWeather(features);
   features.weather_risk_level = WEATHER_RISK_ORDER[weather.level];
-  features.heat_humidity_flag = features.feels_like_c >= 30 && features.humidity_percent >= 70 ? 1 : 0;
+
   const completeness = buildDataCompleteness(context);
   features.sleep_coverage_14d = completeness.sleepCoverage14d;
   features.weather_coverage_14d = completeness.weatherCoverage14d;
   features.hrv_coverage_14d = completeness.hrvCoverage14d;
   features.training_status_coverage_14d = completeness.trainingStatusCoverage14d;
   features.data_completeness_score = completeness.score;
-
-  return FEATURE_SCHEMA.features.reduce((result, feature) => {
-    result[feature.name] = toNumber(features[feature.name], feature.default || 0);
-    return result;
-  }, {});
+  return features;
 }
 
 function riskMax(left, right) {
   return RISK_ORDER[right] > RISK_ORDER[left] ? right : left;
 }
 
-function rulePrediction(features, athleteProfile = config.ml?.athleteProfile) {
+function evaluateReadiness(features) {
   const weather = assessWeather(features);
-  const profile = normalizeAthleteProfile(athleteProfile);
-  const highTolerance = profile.trainingTolerance === 'high' || profile.athleteTier === 'competitive_amateur';
   const reasons = [];
   let score = 0;
   let recoverySignalCount = 0;
@@ -323,35 +247,27 @@ function rulePrediction(features, athleteProfile = config.ml?.athleteProfile) {
     score: round(features.data_completeness_score, 1) || 0
   };
 
-  if (features.sleep_score > 0 && features.sleep_score < 60) {
-    recoverySignalCount += 1;
-  } else if (features.sleep_duration_h > 0 && features.sleep_duration_h < 6) {
-    recoverySignalCount += 1;
-  }
+  if (features.sleep_score > 0 && features.sleep_score < 60) recoverySignalCount += 1;
+  else if (features.sleep_duration_h > 0 && features.sleep_duration_h < 6) recoverySignalCount += 1;
   if (features.hrv_delta_pct <= -15) recoverySignalCount += 1;
   if (features.resting_hr_delta >= 5) recoverySignalCount += 1;
   if (features.avg_stress >= 50) recoverySignalCount += 1;
   if (features.body_battery_drained >= 60) recoverySignalCount += 1;
 
-  if (features.tsb < -25 && (!highTolerance || loadHabitSpike || recoverySignalCount >= 2)) {
+  if (features.tsb < -25 && (loadHabitSpike || recoverySignalCount >= 2)) {
     score += 3;
     reasons.push('TSB 显著偏低');
-  } else if (features.tsb < -10 && (!highTolerance || recoverySignalCount >= 2)) {
+  } else if (features.tsb < -10 && recoverySignalCount >= 2) {
     score += 1;
     reasons.push('TSB 偏低');
   }
 
-  if (features.acwr_7_28 >= 1.5 && (!highTolerance || loadHabitSpike || recoverySignalCount >= 2)) {
+  if (features.acwr_7_28 >= 1.5 && (loadHabitSpike || recoverySignalCount >= 2)) {
     score += 2;
     reasons.push('近期负荷增长过快');
-  } else if (features.acwr_7_28 >= 1.3 && (!highTolerance || loadHabitSpike)) {
+  } else if (features.acwr_7_28 >= 1.3 && loadHabitSpike) {
     score += 1;
     reasons.push('近期负荷上升');
-  }
-
-  if (highTolerance && loadHabitSpike && recoverySignalCount > 0) {
-    score += 1;
-    reasons.push('相对本人近期习惯负荷偏高');
   }
 
   if (features.sleep_score > 0 && features.sleep_score < 60) {
@@ -417,11 +333,6 @@ function rulePrediction(features, athleteProfile = config.ml?.athleteProfile) {
 
   riskLevel = weather.level === 'high' ? riskMax(riskLevel, 'yellow') : riskLevel;
 
-  const topFactors = [
-    ...(weather.level === 'high' ? weather.reasons : []),
-    ...reasons
-  ];
-
   return {
     readinessScore,
     readinessLevel,
@@ -432,209 +343,41 @@ function rulePrediction(features, athleteProfile = config.ml?.athleteProfile) {
     weatherRisk: weather.level,
     primaryRecommendation,
     recommendationTypes: [...new Set(recommendationTypes)],
-    topFactors: [...new Set(topFactors)].slice(0, 5),
+    topFactors: [...new Set([...(weather.level === 'high' ? weather.reasons : []), ...reasons])].slice(0, 5),
     dataCompleteness,
-    confidence: 0.62,
-    modelVersion: MODEL_VERSION,
+    confidence: 0.72,
+    modelVersion: RULE_ENGINE_VERSION,
     provider: 'rules',
-    fallback: true,
-    rulesBaseline: {
-      readinessLevel,
-      riskLevel,
-      loadAction,
-      weatherRisk: weather.level,
-      primaryRecommendation
-    },
-    perceivedEffortLevel: classifyRelativePerceivedEffort(features),
-    learnedSignals: null,
-    labelSourceSummary: DEFAULT_LABEL_SOURCE_SUMMARY
+    fallback: false
   };
 }
 
-function normalizeModelPrediction(rawPrediction, fallbackPrediction) {
-  const prediction = rawPrediction && typeof rawPrediction === 'object' ? rawPrediction : {};
-  const allowed = {
-    readinessLevel: ['low', 'medium', 'high'],
-    recoveryRisk: ['low', 'medium', 'high'],
-    riskLevel: ['green', 'yellow', 'orange', 'red'],
-    loadAction: ['rest', 'reduce', 'maintain', 'progress'],
-    trainingModifier: ['normal', 'reduce_intensity', 'indoor_preferred', 'avoid_hard_session'],
-    weatherRisk: ['low', 'medium', 'high'],
-    primaryRecommendation: ['rest', 'easy_aerobic', 'normal_training', 'interval', 'strength', 'mobility', 'sleep_focus', 'hydration']
-  };
-  const learnedSignals = {
-    readinessLevel: prediction.readinessLevel || null,
-    loadAction: prediction.loadAction || null,
-    primaryRecommendation: prediction.primaryRecommendation || null,
-    perceivedEffortLevel: prediction.perceivedEffortLevel || null,
-    adviceFeedbackClass: prediction.adviceFeedbackClass || null,
-    confidence: round(prediction.confidence, 4) ?? null
-  };
-
-  const merged = {
-    ...fallbackPrediction,
-    readinessScore: clamp(Math.round(toNumber(prediction.readinessScore, fallbackPrediction.readinessScore)), 0, 100),
-    readinessLevel: allowed.readinessLevel.includes(prediction.readinessLevel) ? prediction.readinessLevel : fallbackPrediction.readinessLevel,
-    recoveryRisk: allowed.recoveryRisk.includes(prediction.recoveryRisk) ? prediction.recoveryRisk : fallbackPrediction.recoveryRisk,
-    riskLevel: allowed.riskLevel.includes(prediction.riskLevel)
-      ? riskMax(fallbackPrediction.riskLevel, prediction.riskLevel)
-      : fallbackPrediction.riskLevel,
-    loadAction: allowed.loadAction.includes(prediction.loadAction) ? prediction.loadAction : fallbackPrediction.loadAction,
-    trainingModifier: allowed.trainingModifier.includes(prediction.trainingModifier) ? prediction.trainingModifier : fallbackPrediction.trainingModifier,
-    weatherRisk: allowed.weatherRisk.includes(prediction.weatherRisk) ? prediction.weatherRisk : fallbackPrediction.weatherRisk,
-    primaryRecommendation: allowed.primaryRecommendation.includes(prediction.primaryRecommendation)
-      ? prediction.primaryRecommendation
-      : fallbackPrediction.primaryRecommendation,
-    recommendationTypes: Array.isArray(prediction.recommendationTypes) && prediction.recommendationTypes.length
-      ? prediction.recommendationTypes.filter((item) => allowed.primaryRecommendation.includes(item)).slice(0, 5)
-      : fallbackPrediction.recommendationTypes,
-    topFactors: fallbackPrediction.topFactors,
-    dataCompleteness: fallbackPrediction.dataCompleteness,
-    confidence: round(prediction.confidence, 4) ?? fallbackPrediction.confidence,
-    modelVersion: prediction.modelVersion || MODEL_VERSION,
-    provider: 'local_model',
-    fallback: false,
-    perceivedEffortLevel: prediction.perceivedEffortLevel || null,
-    adviceFeedbackClass: prediction.adviceFeedbackClass || null,
-    rulesBaseline: fallbackPrediction.rulesBaseline,
-    learnedSignals,
-    labelSourceSummary: prediction.labelSourceSummary || fallbackPrediction.labelSourceSummary || DEFAULT_LABEL_SOURCE_SUMMARY
-  };
-
-  if (fallbackPrediction.riskLevel === 'red') {
-    merged.loadAction = 'rest';
-    merged.primaryRecommendation = 'rest';
-    merged.recommendationTypes = ['rest', 'sleep_focus'];
-    merged.trainingModifier = 'avoid_hard_session';
-  } else if (fallbackPrediction.riskLevel === 'orange' && ['maintain', 'progress'].includes(merged.loadAction)) {
-    merged.loadAction = 'reduce';
-    merged.primaryRecommendation = merged.primaryRecommendation === 'normal_training' ? 'easy_aerobic' : merged.primaryRecommendation;
-    merged.recommendationTypes = [...new Set(['easy_aerobic', 'mobility', ...merged.recommendationTypes])].slice(0, 5);
-  }
-
-  if (fallbackPrediction.weatherRisk === 'high') {
-    merged.weatherRisk = 'high';
-    if (merged.loadAction === 'progress') merged.loadAction = 'maintain';
-    if (merged.trainingModifier === 'normal') merged.trainingModifier = 'reduce_intensity';
-    if (!merged.recommendationTypes.includes('hydration')) {
-      merged.recommendationTypes = [...merged.recommendationTypes, 'hydration'].slice(0, 5);
-    }
-  }
-
-  return merged;
-}
-
-function runPythonPrediction(features) {
-  return new Promise((resolve, reject) => {
-    if (!fs.existsSync(config.ml.coachModelPath) || !fs.existsSync(config.ml.coachPredictScriptPath)) {
-      reject(new Error('coach model is not available'));
-      return;
-    }
-
-    const child = spawn(
-      config.ml.pythonPath,
-      [config.ml.coachPredictScriptPath, '--model', config.ml.coachModelPath],
-      {
-        cwd: process.cwd(),
-        env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
-        windowsHide: true
-      }
-    );
-
-    let stdout = '';
-    let stderr = '';
-    const timer = setTimeout(() => {
-      child.kill();
-      reject(new Error('coach prediction timed out'));
-    }, config.ml.timeoutMs);
-
-    child.stdout.on('data', (chunk) => {
-      stdout += chunk.toString('utf8');
-    });
-    child.stderr.on('data', (chunk) => {
-      stderr += chunk.toString('utf8');
-    });
-    child.on('error', (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      if (code !== 0) {
-        reject(new Error(stderr.trim() || 'coach prediction failed'));
-        return;
-      }
-      try {
-        resolve(JSON.parse(stdout));
-      } catch (error) {
-        reject(error);
-      }
-    });
-
-    child.stdin.end(JSON.stringify(features));
-  });
-}
-
-function modelCacheKey(context = {}) {
-  let modelMtime = 'missing';
-  try {
-    modelMtime = fs.statSync(config.ml.coachModelPath).mtimeMs;
-  } catch (_error) {
-    modelMtime = 'missing';
-  }
+function cacheKeyFor(context = {}) {
   const signals = context.signals || {};
-  const dataSignals = [
-    signals.activityCount28d || 0,
-    signals.healthDays14d || 0,
-    signals.sleepDays14d || 0,
-    signals.trainingDays14d || 0,
-    signals.weatherSamples28d || 0,
-    signals.feedbackCount || context.feedbackPreference?.total || 0
-  ].join(',');
   return [
     context.userId || 'anonymous',
     context.latestDate || 'unknown',
-    modelMtime,
-    dataSignals
+    signals.activityCount28d || 0,
+    signals.healthDays14d || 0,
+    signals.sleepDays14d || 0,
+    signals.trainingDays14d || 0
   ].join(':');
 }
 
-function getCachedPrediction(cacheKey) {
-  const cached = predictionCache.get(cacheKey);
-  if (!cached) return null;
-  if (Date.now() - cached.createdAt > CACHE_TTL_MS) {
-    predictionCache.delete(cacheKey);
-    return null;
-  }
-  return cached.value;
-}
-
-function setCachedPrediction(cacheKey, value) {
-  predictionCache.set(cacheKey, { createdAt: Date.now(), value });
-  if (predictionCache.size > 100) {
-    const firstKey = predictionCache.keys().next().value;
-    predictionCache.delete(firstKey);
-  }
-}
-
 async function predict({ overview = {}, context = {} } = {}) {
-  const cacheKey = modelCacheKey(context);
-  const cached = getCachedPrediction(cacheKey);
-  if (cached) return cached;
+  const key = cacheKeyFor(context);
+  const cached = predictionCache.get(key);
+  if (cached && Date.now() - cached.createdAt <= CACHE_TTL_MS) {
+    return cached.value;
+  }
 
   const features = buildFeatureSet(overview, context);
-  const fallbackPrediction = rulePrediction(features, context.athleteProfile);
-  let prediction;
-
-  try {
-    const modelPrediction = await runPythonPrediction(features);
-    prediction = normalizeModelPrediction(modelPrediction, fallbackPrediction);
-  } catch (_error) {
-    prediction = fallbackPrediction;
+  const value = evaluateReadiness(features);
+  predictionCache.set(key, { createdAt: Date.now(), value });
+  if (predictionCache.size > 100) {
+    predictionCache.delete(predictionCache.keys().next().value);
   }
-
-  setCachedPrediction(cacheKey, prediction);
-  return prediction;
+  return value;
 }
 
 function summarizePrediction(prediction) {
@@ -649,70 +392,27 @@ function summarizePrediction(prediction) {
     trainingModifier: prediction.trainingModifier,
     weatherRisk: prediction.weatherRisk,
     primaryRecommendation: prediction.primaryRecommendation,
-    recommendationTypes: prediction.recommendationTypes || [],
     topFactors: prediction.topFactors || [],
-    confidence: prediction.confidence,
-    modelVersion: prediction.modelVersion,
-    provider: prediction.provider,
-    fallback: prediction.fallback,
     dataCompleteness: prediction.dataCompleteness,
-    rulesBaseline: prediction.rulesBaseline || null,
-    learnedSignals: prediction.learnedSignals || null,
-    labelSourceSummary: prediction.labelSourceSummary || DEFAULT_LABEL_SOURCE_SUMMARY
+    modelVersion: prediction.modelVersion,
+    provider: prediction.provider
   });
 }
 
 async function getHealth() {
-  const modelAvailable = fs.existsSync(config.ml.coachModelPath);
-  const scriptAvailable = fs.existsSync(config.ml.coachPredictScriptPath);
-  const metadataPath = path.join(path.dirname(config.ml.coachModelPath), 'coach_model_metadata.json');
-  let metadata = {};
-  try {
-    metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
-  } catch (_error) {
-    metadata = {};
-  }
-  let trainedAt = null;
-  try {
-    trainedAt = fs.statSync(config.ml.coachModelPath).mtime.toISOString();
-  } catch (_error) {
-    trainedAt = null;
-  }
-
   return {
-    status: modelAvailable && scriptAvailable ? 'ok' : 'fallback',
-    modelAvailable,
-    scriptAvailable,
-    modelVersion: metadata.modelVersion || MODEL_VERSION,
-    sampleCount: metadata.sampleCount || 0,
-    labelSourceSummary: metadata.labelSourceSummary || DEFAULT_LABEL_SOURCE_SUMMARY,
-    trainedAt,
-    fallbackRules: true,
-    featureCount: FEATURE_NAMES.length,
-    athleteProfile: normalizeAthleteProfile(),
-    cache: {
-      enabled: true,
-      ttlMs: CACHE_TTL_MS,
-      size: predictionCache.size,
-      keyIncludes: ['userId', 'latestDate', 'modelMtime', 'dataSignals']
-    },
+    status: 'ok',
+    provider: 'rules',
+    modelVersion: RULE_ENGINE_VERSION,
     cacheSize: predictionCache.size
   };
 }
 
 module.exports = {
-  MODEL_VERSION,
-  FEATURE_NAMES,
+  RULE_ENGINE_VERSION,
   buildFeatureSet,
-  rulePrediction,
+  evaluateReadiness,
   predict,
   summarizePrediction,
-  getHealth,
-  __private: {
-    assessWeather,
-    buildDataCompleteness,
-    classifyRelativePerceivedEffort,
-    modelCacheKey,
-    normalizeModelPrediction
-  }
+  getHealth
 };

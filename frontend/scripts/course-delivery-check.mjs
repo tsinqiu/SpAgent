@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
-import { primaryNavigation } from '../src/constants/product.js'
+import { workspaceNavigation } from '../src/constants/product.js'
 
 function source(path) {
   return readFile(new URL('../src/' + path, import.meta.url), 'utf8')
@@ -27,7 +27,7 @@ const routes = new Map(
 )
 
 for (const path of [
-  ...primaryNavigation.map(({ to }) => to),
+  ...workspaceNavigation.flatMap(group => group.items.map(({ to }) => to)),
   '/activities/:id', '/status', '/status/health', '/status/performance',
   '/status/training-load', '/status/trends', '/status/calendar', '/status/records',
   '/coach', '/training-plans', '/explore/events', '/explore/courses', '/explore/routes', '/explore/weekly-report',
@@ -60,19 +60,20 @@ for (const [legacy, current] of [
   assert.equal(routes.get(legacy)?.match(/redirect: '([^']+)'/)?.[1], current, legacy)
 }
 
-assert.match(shell, /const navItems = primaryNavigation/)
-assert.match(shell, /aria-label="进入我的"[^>]*@click="goProfile"/)
+assert.match(shell, /v-for="group in workspaceNavigation"/)
+assert.match(shell, /aria-label="打开工作区菜单"[^>]*@click="openMenu"/)
+assert.match(shell, /<RouterLink to="\/coach"/)
 assert.match(today, /path: '\/training-plans', query: \{ from: 'today' \}/)
-assert.match(explore, /path: '\/coach', query: \{ from: 'explore' \}/)
-assert.match(explore, /path: '\/status', query: \{ from: 'explore' \}/)
-assert.match(explore, /name: 'weekly-report'/)
+assert.match(explore, /to="\/explore\/courses"/)
+assert.match(explore, /to="\/explore\/routes"/)
+assert.doesNotMatch(explore, /path: '\/coach'|path: '\/status'|\/explore\/events/)
 assert.match(record, /<StartWorkout\b/)
 assert.match(record, /<ManualActivityModal\b/)
 assert.match(workout, /@click="toggleRecording"/)
 
 const dataViews = [
   'Today', 'Activities', 'ActivityDetail', 'Status', 'HealthDetail', 'TrainingLoad',
-  'Statistics', 'Calendar', 'Records', 'Coach', 'RecordActivity', 'Sync', 'Shoes',
+  'Statistics', 'Calendar', 'Records', 'RecordActivity', 'Sync', 'Shoes',
   'Admin', 'TrainingPlans', 'Community', 'WeeklyReport', 'TrainingPreferences',
 ]
 const dataSources = await Promise.all(dataViews.map((name) => source('views/' + name + '.vue')))

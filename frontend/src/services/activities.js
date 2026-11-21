@@ -280,8 +280,3 @@ export async function fetchActivityWeather(id) {
   const envelope = await mutateEnvelope('post', `/activities/${id}/weather/fetch`, {}, { normalizer: normalizeActivity })
   return envelope.data
 }
-
-export async function predictRunningLoad(payload) {
-  const envelope = await mutateEnvelope('post', '/ml/running-prediction', payload)
-  return envelope.data
-}

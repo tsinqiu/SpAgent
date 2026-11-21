@@ -52,7 +52,7 @@
 - `running` 含跑步次数、跑步日数、总距离（米）、平均配速（秒每公里）、负荷、最近观测日期，以及各指标的样本数和合成记录数。配速是有效单次配速的算术平均。
 - `recovery` 分别给出睡眠评分、睡眠时长（秒）、HRV 与静息心率的均值、样本数、最近观测日期和合成样本数。没有观测的指标返回 `null`。
 
-首页运动概览使用 `GET /dashboard/overview?view=today`，只读取最近运动和训练负荷。健康度使用 `GET /training/load-balance`。趋势页使用 `GET /stats/metric-trends`，返回各指标到有样本自然日 `{ date, value }` 的映射；既有单指标接口仍提供关联活动和样本数。
+首页运动概览使用 `GET /dashboard/overview?view=today`，只读取最近运动和训练负荷。健康度使用 `GET /training/load-balance`。跑力、五力与训练指数使用 `GET /training/performance-profile`（纯规则与统计引擎，无外部 Python ML 依赖）。趋势页使用 `GET /stats/metric-trends`，返回各指标到有样本自然日 `{ date, value }` 的映射；既有单指标接口仍提供关联活动和样本数。
 
 ## 训练周报
 
@@ -88,7 +88,7 @@
 
 「今日」读取时根据北京时间计算当日及上一个完整自然周，只为开启的提醒保存一条对应周期记录。今日提醒只针对启用中计划里的待完成任务。上周复盘需要至少一条上周运动记录或已完成、已跳过的训练。跨天或跨周后自然过期，关闭开关和归档计划影响下一次读取。提醒在应用内展示。
 
-## 教练计划助手
+## AI 教练工作台
 
 | 方法与路径 | 行为 |
 | --- | --- |
@@ -98,16 +98,74 @@
 | `POST /agent/conversations/:id/messages` | 提交一轮消息，返回本轮用户和教练消息 |
 | `POST /agent/actions/:id/confirm` | 确认待审批草案，返回动作的实际状态和已保存计划 ID |
 | `POST /agent/actions/:id/reject` | 拒绝待审批草案，返回动作状态 |
+| `POST /agent/conversations/:id/messages/stream` | SSE 流式发送消息（支持 JSON 与 multipart 附件），依次推送 `status`、`card`、`delta`、`followups`、`proposal_ready`、`done` / `error` 事件，支持客户端主动中止 |
+| `GET /agent/context-pulse` | 读取当前登录用户的动态欢迎脉搏（分时段问候、实时生理指标胶囊与数据感知快捷提问，30 秒按账号 LRU 缓存） |
+| `PATCH /agent/conversations/:id` | 重命名当前登录用户的指定对话 |
+| `DELETE /agent/conversations/:id` | 删除当前登录用户的指定对话（级联清理消息与待审批动作） |
+| `GET /agent/memories` | 读取当前登录用户的教练长期记忆列表 |
+| `POST /agent/memories` | 手动添加一条教练长期记忆（`category`、`content`） |
+| `DELETE /agent/memories/:id` | 删除当前登录用户指定的教练长期记忆 |
 
 发送消息时，客户端填入 `message`（1–1000 字符）和 `clientMessageId`（UUID v4）。因网络问题重试时复用 UUID 和内容。相同消息会重放已保存结果，同一进程还会合并进行中的同键请求。复用 UUID 提交不同内容返回 409 `AGENT_MESSAGE_CONFLICT`。另一条消息先写入会话而当前请求还在生成时，服务端返回 409 `AGENT_CONVERSATION_UPDATED`。客户端应重新读取最新会话并允许重试。消息的 `cards` 可包含 `clarification`、`tool_status`、`evidence`、`plan_draft` 和 `plan_diff`。回复正文使用 `content`。教练会话创建与消息提交合并限制为每账号每分钟 20 次。
 
 草案在会话中保存为待审批动作，有效期 30 分钟。动作状态可为 `proposed`、`applied`、`rejected`、`expired`、`failed`。确认和拒绝使用登录账号归属与数据库锁；重复处理返回已有状态。只有 `applied` 返回已创建计划的 `planId`。如果一个预定直接启用的草案遇到另一个已启用计划，服务端返回 `failed` 和 `ACTIVE_TRAINING_PLAN_EXISTS`，已有计划继续执行。已有执行中计划时生成的新草案，确认后保存为独立草稿。读取或操作他人会话、动作返回 404。
 
-默认执行本地规则。可选模型只接收本轮输入文本，最多一次结构化分类。模型输出经过字段校验和工具白名单检查。规则生成器生成四周候选，再通过训练计划校验。模型调用失败或返回无效输出时使用本地规则。
+统一对话可查询个人运动记录、回答训练问题和提议调整计划。启用 DeepSeek 后，Vercel AI SDK 的 `ToolLoopAgent` 使用当前问题、至多四条允许的历史消息和本轮工具结果，最多调用模型四步，模型运行超时为 22 秒。可用工具覆盖本人运动、同距离水平、训练与恢复汇总、训练知识。个人水平、趋势和恢复在模型分析前读取相应数据，查询账号从服务端鉴权取得。外发摘要省略账号标识与 GPS 轨迹，消息中的常见凭证和邮箱格式会被遮盖。`meta.answerProvider` 标明正文来源，`meta.modelSteps` 和 `meta.model` 记录已完成的模型调用步数和实际模型标识。 [ToolLoopAgent 文档](https://ai-sdk.dev/docs/reference/ai-sdk-core/tool-loop-agent)
+
+个人跑步水平默认复盘账号的完整实际跑步历史。先根据代表成绩给出评估，再展示记录跨度、跑步天数、累计距离、长距离次数和各距离区间的依据。最近一条记录标记数据更新到哪天。指定距离时支持最多六项，每项使用目标距离 ±2% 内的整段运动。指定时段会约束最近一次、各距离参考和覆盖统计。用户可以跨话题明确回到原统计，服务端最多向前查找 12 条归属同一会话的消息，在线模型仍最多收到四条经过筛选和遮盖的文字记录。补充的比赛用时只绑定到明确的距离。用户询问人群排名时，按可比人群成绩数据的可用性说明排名边界。
+
+趋势和恢复分析排除演示数据。跑步建议遇到近期无跑步记录时会查询本人完整跑步历史，明确显示历史跨度和最近实际跑步。趋势在所问窗口无记录时可补充历史，明确限定日期的统计仍按原时间范围展示。单独查询睡眠时长、睡眠评分、HRV 或静息心率时，按指定日期或时段读取相应指标。跨项目训练建议会先获取对应专项数据。通用技术问题只读取本地训练资料。
+
+计划意图识别可调用一次结构化模型，并在 `meta.intentProvider` 中标明来源。服务端检查意图字段和允许的工具，通过本地规则生成并校验四周草案。在启用回退的配置下，在线模型失败会使用本地规则。
+
+「最近 N 次」按指定运动类型查询最新历史，范围为 1–20 条。用户可附加日期、自然周或其他时间段。常规统计和活动列表由服务端生成，包含演示记录时标明条数。「只算真实记录」会过滤演示记录，连续追问可沿用该条件。查到零条记录与数据源暂不可用使用不同响应。教练可承接上一轮的范围、运动类型和条数，并重新查询。需要解读的记录请求通过同一框架，最多调用模型三步。个人分析的日期、次数、时间和里程由服务端计算。模型输出需要通过格式、证据工具和正文校验。
+
+消息可选 `coachRole` 和 `coachInstructions`。角色包括 `general`、`running`、`swimming`、`strength_training`、`cycling`。自定义指令最多 1500 字，用于回答偏好。通用运动技术问题按提问和角色从本地资料库检索，参考链接由服务端提供。
+
+附件消息沿用同路由，使用 `multipart/form-data`，单文件字段名为 `attachment`，最多 8 MB。支持 JPEG、PNG、GIF、WebP、UTF-8 Markdown/文本和 PDF，可省略消息正文。重复提交同一消息 ID 时，内容、偏好和附件应一致。文本 PDF 最多提取 30 页及 16,000 字，扫描或图表 PDF 每次最多分析 4 张页图。后端只保留文件名、问答和依据，不保存原始文件。附件内容只用于当轮解读，历史答案不会自动回传给模型。
+
+## 本地 MCP 接入
+
+官方 SDK 通过 stdio 提供 7 个鉴权只读工具：`list_my_activities`、`summarize_my_activities`、`get_my_performance_evidence`、`get_my_recovery_context`、`get_my_athlete_profile`、`analyze_my_activity_telemetry` 和 `get_my_training_plans`。MCP 客户端直接运行 `node <后端绝对路径>/scripts/spagentMcp.js`，通过进程环境变量 `SPAGENT_MCP_TOKEN` 传入有效的 SpAgent 登录令牌。可用 Node 的 `--env-file` 指定后端私有运行配置。每次调用校验账号，与 App 共享同一套只读业务服务，MCP 客户端无法提交计划审批。
+
+## 马拉松赛事爬虫与用户目标赛事
+
+| 方法与路径 | 行为 |
+| --- | --- |
+| `GET /explore/events` | 返回自动爬虫入库的国内未来半程/全程马拉松赛历，支持 `category=all\|full\|half`、`city`、`days`、`limit` 与 `featured=true`（主页按日期精选） |
+| `POST /explore/events/refresh` | 需登录；手动触发一次爬虫同步（60 秒冷却防抖，解析为空或源站异常时保留现有 MySQL 缓存） |
+| `GET /explore/my-events` | 需登录；读取当前账号保存在 MySQL `UserMarathonEvents` 的目标赛事列表 |
+| `POST /explore/my-events` | 需登录；保存或更新一条目标赛事（按 `(user_id, event_key)` 幂等写入，自动同步至 AI 教练上下文） |
+| `DELETE /explore/my-events/:id` | 需登录；删除当前账号指定的目标赛事 |
+
+## 公共运行时配置与注册防护
+
+`GET /system/public-config` 无需登录，返回：
+
+```json
+{
+  "auth": { "allowPublicRegistration": true, "inviteCodeRequired": false },
+  "maps": { "amap": { "key": "...", "serviceHost": "", "securityCode": "" } }
+}
+```
+
+- 当 `ALLOW_PUBLIC_REGISTRATION=false` 时，`POST /auth/register` 返回 `403 REGISTRATION_DISABLED`；当配置 `REGISTRATION_INVITE_CODE` 时，须在请求体提供匹配的 `inviteCode`（服务端使用 SHA-256 + 常量时间比较），否则返回 `403 INVALID_INVITE_CODE`。
+- 当生产环境配置了 `AMAP_SERVICE_HOST`（Nginx 反向代理高德 `/_AMapService/`）时，服务端自动省略原始 `securityCode` 下发；未配置 `AMAP_JS_API_KEY` 时前端自动降级为高精度 SVG 配速轨迹渲染。
+
+## 运动贡献热力图
+
+`GET /stats/heatmap` 需登录，严格按当前登录账号（`req.user.id`）聚合自然日运动汇总，支持参数 `year=rolling|YYYY`（默认 `rolling` 近 365 天）与 `activity_type`（可选）。返回 `{ range, availableYears, summary: { activeDays, totalCount, totalDistanceKm, totalDurationMin, totalCalories, totalLoad, longestStreak, currentStreak, latestActiveDate }, days: [{ date, count, distanceKm, durationMin, calories, load }] }`。
+
+## AI 教练联网天气与公开检索工具
+
+AI 教练内置两个 SSRF 白名单隔离的只读在线工具（`backend/src/services/coachOnlineService.js`）：
+
+- `get_live_weather_and_aqi`：优先查询中国气象局（CMA）实时观测与预报并结合 Open-Meteo 空气质量（US AQI / PM2.5 / PM10），回退至 Open-Meteo 全球预报，输出跑步适宜度评估与穿衣/配速建议（15 分钟缓存）。
+- `web_search`：受 `AGENT_WEB_SEARCH_ENABLED` 控制，自动脱敏邮箱、手机号与密钥格式，优先使用可选的 `TAVILY_API_KEY`，未配置时零密钥回退至公开搜索引擎检索（10 分钟缓存）。
 
 生成跑步计划时，本轮目标和训练日分别优先。缺少某项时，明确请求制定计划的消息可以复用该账号保存的对应偏好，草案依据标注来源。使用保存偏好的请求由本地规则处理。
 
-缺少关键计划参数时，教练返回 `clarification` 卡。卡片包含需要补充的 `fields`、ISO 8601 格式的 `expiresAt`，以及 `choices`（每项含 `label` 和 `message`）。点击选项通过同一个消息接口提交对应 `message`。澄清记录只对当前会话最新一轮生效，每次请求补充后保留 30 分钟，最多追问两轮。用户可以补充缺项、选「按默认安排」或取消；刷新后会恢复有效的澄清卡。补充时沿用本轮已明确的目标、训练日、频率、开始日和时长上限，澄清记录不会写入跨会话偏好或传给 DeepSeek。用户确认草案后才写入计划。
+缺少关键计划参数时，教练返回 `clarification` 卡。卡片包含需要补充的 `fields`、ISO 8601 格式的 `expiresAt`，以及 `choices`（每项含 `label` 和 `message`）。点击选项通过同一个消息接口提交对应 `message`。澄清记录只对当前会话最新一轮生效，每次请求补充后保留 30 分钟，最多追问两轮。用户可以补充缺项、选「按默认安排」或取消。刷新后会恢复有效的澄清卡。补充时沿用本轮已明确的目标、训练日、频率、开始日和时长上限。结构化澄清状态留在服务端。用户确认草案后才写入计划。
 
 ## 私有照片
 

@@ -26,8 +26,8 @@ export async function getEnvelope(path, { params, normalizer } = {}) {
   }
 }
 
-export async function mutateEnvelope(method, path, body, { normalizer } = {}) {
-  const response = await apiClient[method](path, body)
+export async function mutateEnvelope(method, path, body, { normalizer, timeout } = {}) {
+  const response = await apiClient[method](path, body, { timeout })
   const envelope = unwrapApiResponse(response.data)
   return {
     data: normalizeCollection(envelope.data, normalizer),

@@ -13,13 +13,29 @@ function summarizeMetric(rows, key, startDate) {
   };
 }
 
-async function getContext(userId, endDate = localToday()) {
+function summarizeRecovery({ sleep, daily }, startDate, excludeDemo) {
+  const measuredSleep = excludeDemo ? sleep.filter(row => !row.isDemo) : sleep;
+  const measuredDaily = excludeDemo ? daily.filter(row => !row.isDemo) : daily;
+  return {
+    sleepScore: summarizeMetric(measuredSleep, 'sleepScore', startDate),
+    sleepDurationS: summarizeMetric(measuredSleep, 'sleepDurationS', startDate),
+    hrv: summarizeMetric(measuredSleep, 'hrv', startDate),
+    restingHeartRate: summarizeMetric(measuredDaily, 'restingHeartRate', startDate)
+  };
+}
+
+async function getRecoveryContext(userId, startDate, endDate) {
+  const days = await healthService.getRecoveryDays(userId, startDate, endDate);
+  return { startDate, endDate, recovery: summarizeRecovery(days, startDate, true) };
+}
+
+async function getContext(userId, endDate = localToday(), { excludeDemo = false } = {}) {
   const recovery = healthService.getRecoveryDays(userId, addDays(endDate, -27), endDate);
   const windows = [7, 28].map(async days => {
     const startDate = addDays(endDate, 1 - days);
-    const [runs, { sleep, daily }] = await Promise.all([
+    const [runs, daysWithRecovery] = await Promise.all([
       activityService.getSummaryStats({
-        owner: 'mine', ownerUserId: userId, runningOnly: true, startDate, endDate
+        owner: 'mine', ownerUserId: userId, runningOnly: true, startDate, endDate, ...(excludeDemo && { excludeDemo })
       }, { includeCoverage: true, useTrainingDates: true }),
       recovery
     ]);
@@ -32,15 +48,10 @@ async function getContext(userId, endDate = localToday()) {
         latestDate: runs.latestDate, demoActivities: runs.demoActivities,
         coverage: { distance: runs.distanceSamples, pace: runs.paceSamples, load: runs.loadSamples }
       },
-      recovery: {
-        sleepScore: summarizeMetric(sleep, 'sleepScore', startDate),
-        sleepDurationS: summarizeMetric(sleep, 'sleepDurationS', startDate),
-        hrv: summarizeMetric(sleep, 'hrv', startDate),
-        restingHeartRate: summarizeMetric(daily, 'restingHeartRate', startDate)
-      }
+      recovery: summarizeRecovery(daysWithRecovery, startDate, excludeDemo)
     };
   });
   return { asOf: endDate, timeZone: 'Asia/Shanghai', windows: await Promise.all(windows) };
 }
 
-module.exports = { getContext };
+module.exports = { getContext, getRecoveryContext };

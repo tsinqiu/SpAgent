@@ -11,11 +11,17 @@ test('rate-limit defaults are relaxed by environment', () => {
   assert.equal(typeof config.getRateLimitDefaults, 'function');
   assert.deepEqual(config.getRateLimitDefaults('development'), {
     globalMax: 3000,
-    authMax: 120
+    authMax: 120,
+    registerMax: 100,
+    aiMax: 300,
+    crawlerRefreshMax: 30
   });
   assert.deepEqual(config.getRateLimitDefaults('production'), {
     globalMax: 1200,
-    authMax: 60
+    authMax: 60,
+    registerMax: 10,
+    aiMax: 45,
+    crawlerRefreshMax: 5
   });
 });
 

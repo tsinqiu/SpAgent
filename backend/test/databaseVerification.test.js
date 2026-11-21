@@ -13,7 +13,7 @@ function completeRows() {
 
   for (const [tableName, definition] of Object.entries(REQUIRED_SCHEMA)) {
     for (const columnName of definition.columns) {
-      columns.push({ tableName, columnName });
+      columns.push({ tableName, columnName, dataType: columnName === 'content' ? 'text' : 'varchar' });
     }
     for (const indexName of definition.indexes || []) {
       indexes.push({ tableName, indexName });
@@ -49,6 +49,15 @@ test('database verification accepts the required application schema', async () =
 
 test('database verification does not require removed raw activity JSON', () => {
   assert.equal(REQUIRED_SCHEMA.Activities.columns.includes('raw_json'), false);
+});
+
+test('database verification detects the legacy short coach message column', async () => {
+  const rows = completeRows();
+  rows.columns.find(row => row.tableName === 'AgentMessages' && row.columnName === 'content').dataType = 'varchar';
+  await assert.rejects(verifyDatabase({ query: createQuery(rows), databaseName: 'SpAgent' }), {
+    code: 'DATABASE_SCHEMA_INCOMPLETE',
+    message: /AgentMessages\.content \(TEXT\)/
+  });
 });
 
 test('database verification requires shoe columns used by equipment flows', () => {

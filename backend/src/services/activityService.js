@@ -3,6 +3,15 @@ const { ApiError } = require('../errors');
 
 const trainingActivityTimestamp = 'a.training_timestamp';
 const runningActivityPredicate = "(a.sport_code = 1 OR a.activity_type = 'running' OR RIGHT(a.activity_type, 8) = '_running')";
+const coachSportTypes = Object.freeze({
+  cycling: ['cycling', 'road_biking', 'indoor_cycling', 'mountain_biking', 'gravel_cycling', 'virtual_ride'],
+  strength_training: ['strength_training'],
+  swimming: ['swimming', 'pool_swimming', 'open_water_swimming', 'lap_swimming', 'open_water'],
+  walking: ['walking', 'casual_walking', 'speed_walking', 'indoor_walking'],
+  hiking: ['hiking'],
+  floor_climbing: ['floor_climbing', 'stair_climbing']
+});
+const coachActivitySports = Object.freeze(['running', ...Object.keys(coachSportTypes)]);
 
 const SORT_COLUMNS = {
   local_start_time: 'a.local_start_time',
@@ -157,7 +166,7 @@ function mapActivitySummary(row) {
   });
 }
 
-function buildActivityFilters({ activityType, startDate, endDate, keyword, source, owner, ownerUserId, runningOnly } = {},
+function buildActivityFilters({ activityType, startDate, endDate, keyword, source, owner, ownerUserId, runningOnly, excludeDemo } = {},
   timestamp = 'a.local_start_time') {
   const where = [];
   const params = [];
@@ -191,6 +200,7 @@ function buildActivityFilters({ activityType, startDate, endDate, keyword, sourc
     where.push('a.data_source = ?');
     params.push(source);
   }
+  if (excludeDemo) where.push("a.data_source <> 'demo_synthetic'");
 
   if (owner === 'mine') {
     where.push('a.owner_user_id = ?');
@@ -303,6 +313,47 @@ async function listActivities({
     total,
     totalPages: Math.ceil(total / pageSize)
   };
+}
+
+async function readCoachActivities(userId, { sport, sports, start, end, limit }, { excludeDemo = false, onlyDemo = false } = {}) {
+  if (!Number.isSafeInteger(Number(userId)) || Number(userId) <= 0 || !end) {
+    throw new TypeError('An account and end date are required to read coach activity data');
+  }
+  if (sports !== undefined && (sport != null || !Array.isArray(sports) || sports.length < 2 || sports.length > coachActivitySports.length)) {
+    throw new TypeError('Invalid combined sports');
+  }
+  const selectedSports = sports || (sport == null ? [] : [sport]);
+  if (selectedSports.some(item => !coachActivitySports.includes(item)) || new Set(selectedSports).size !== selectedSports.length) {
+    throw new TypeError('Unsupported coach sport');
+  }
+  if (limit != null && (!Number.isSafeInteger(limit) || limit < 1 || limit > 20)) throw new TypeError('Invalid coach activity limit');
+  if (excludeDemo && onlyDemo) throw new TypeError('Conflicting activity sources');
+  const types = [...new Set(selectedSports.filter(item => item !== 'running').flatMap(item => coachSportTypes[item]))];
+  const filters = buildActivityFilters({
+    owner: 'mine', ownerUserId: userId, startDate: start, endDate: end, runningOnly: sport === 'running', excludeDemo,
+    source: onlyDemo ? 'demo_synthetic' : undefined
+  }, trainingActivityTimestamp);
+  const typeFilter = types.length ? 'a.activity_type IN (' + types.map(() => '?').join(', ') + ')' : '';
+  const scope = typeFilter ? 'AND (' + (sports?.includes('running') ? runningActivityPredicate + ' OR ' : '') + typeFilter + ')' : '';
+  const from = 'FROM Activities a LEFT JOIN ActivitySummaries js ON js.activity_id = a.id ' + filters.clause + ' ' + scope;
+  const params = [...filters.params, ...types];
+  if (limit != null) {
+    return db.query(
+      'SELECT DATE(' + trainingActivityTimestamp + ') AS date, a.activity_type AS activityType, ' +
+      "js.distance_m AS distanceM, js.duration_s AS durationS, js.avg_heart_rate_bpm AS heartRate, a.data_source = 'demo_synthetic' AS isDemo " +
+      from + ' ORDER BY ' + trainingActivityTimestamp + ' DESC, a.id DESC LIMIT ?', [...params, limit]
+    );
+  }
+  const [summary] = await db.query(
+    "SELECT COUNT(*) AS count, COUNT(CASE WHEN a.data_source = 'demo_synthetic' THEN 1 END) AS demoCount, " +
+    'COUNT(NULLIF(js.distance_m, 0)) AS distanceSamples, ' +
+    'SUM(NULLIF(js.distance_m, 0)) AS distanceM, COUNT(NULLIF(js.duration_s, 0)) AS durationSamples, ' +
+    'SUM(NULLIF(js.duration_s, 0)) AS durationS, COUNT(NULLIF(js.avg_heart_rate_bpm, 0)) AS heartRateSamples, ' +
+    'SUM(NULLIF(js.avg_heart_rate_bpm, 0)) AS heartRateSum, ' +
+    'SUM(CASE WHEN js.distance_m > 0 AND js.duration_s > 0 THEN js.distance_m END) AS paceDistanceM, ' +
+    'SUM(CASE WHEN js.distance_m > 0 AND js.duration_s > 0 THEN js.duration_s END) AS paceDurationS ' + from, params
+  );
+  return summary;
 }
 
 async function getActivityById(activityId) {
@@ -1417,10 +1468,146 @@ async function updateActivityWeather(user, activityId, payload, source = 'manual
   return getActivityById(activityId);
 }
 
+function computeHeatmapStreaks(sortedDates, endDate) {
+  if (!sortedDates.length) {
+    return { longestStreak: 0, currentStreak: 0, latestActiveDate: null };
+  }
+  let longest = 1;
+  let run = 1;
+  for (let i = 1; i < sortedDates.length; i += 1) {
+    const prev = sortedDates[i - 1];
+    const curr = sortedDates[i];
+    if (addDays(prev, 1) === curr) {
+      run += 1;
+      if (run > longest) longest = run;
+    } else {
+      run = 1;
+    }
+  }
+  const latestActiveDate = sortedDates[sortedDates.length - 1];
+  let currentStreak = 0;
+  if (latestActiveDate === endDate || addDays(latestActiveDate, 1) === endDate) {
+    currentStreak = 1;
+    for (let i = sortedDates.length - 2; i >= 0; i -= 1) {
+      if (addDays(sortedDates[i], 1) === sortedDates[i + 1]) {
+        currentStreak += 1;
+      } else {
+        break;
+      }
+    }
+  }
+  return { longestStreak: longest, currentStreak, latestActiveDate };
+}
+
+async function getActivityHeatmap({
+  activityType,
+  source,
+  owner,
+  ownerUserId,
+  year,
+  today = toDateString(new Date())
+} = {}) {
+  const safeYear = year && /^\d{4}$/.test(String(year)) ? String(year) : null;
+  const startDate = safeYear ? `${safeYear}-01-01` : addDays(today, -364);
+  const endDate = safeYear ? `${safeYear}-12-31` : today;
+
+  const baseFilters = buildActivityFilters({ activityType, source, owner, ownerUserId });
+  const rangeFilters = buildActivityFilters({
+    activityType,
+    source,
+    owner,
+    ownerUserId,
+    startDate,
+    endDate
+  });
+
+  const [yearRows, dayRows] = await Promise.all([
+    db.query(
+      `
+        SELECT DISTINCT YEAR(a.local_start_time) AS yr
+        FROM Activities a
+        LEFT JOIN Users u ON u.id = a.owner_user_id
+        ${baseFilters.clause}
+        ORDER BY yr DESC
+      `,
+      baseFilters.params
+    ),
+    db.query(
+      `
+        SELECT
+          DATE_FORMAT(a.local_start_time, '%Y-%m-%d') AS date,
+          COUNT(DISTINCT a.id) AS count,
+          ROUND(COALESCE(SUM(js.distance_m), 0) / 1000, 2) AS distanceKm,
+          ROUND(COALESCE(SUM(js.duration_s), 0) / 60, 1) AS durationMin,
+          ROUND(COALESCE(SUM(js.calories), 0), 0) AS calories,
+          ROUND(COALESCE(SUM(js.activity_training_load), 0), 1) AS trainingLoad
+        FROM Activities a
+        LEFT JOIN Users u ON u.id = a.owner_user_id
+        LEFT JOIN ActivitySummaries js ON js.activity_id = a.id
+        ${rangeFilters.clause}
+        GROUP BY DATE_FORMAT(a.local_start_time, '%Y-%m-%d')
+        ORDER BY date ASC
+      `,
+      rangeFilters.params
+    )
+  ]);
+
+  const availableYears = yearRows
+    .map(r => Number(r.yr))
+    .filter(y => Number.isFinite(y) && y >= 2000 && y <= 2100);
+
+  const days = dayRows
+    .filter(r => r.date)
+    .map(r => ({
+      date: String(r.date).slice(0, 10),
+      count: Number(r.count) || 0,
+      distanceKm: roundNumber(r.distanceKm, 2) ?? 0,
+      durationMin: roundNumber(r.durationMin, 1) ?? 0,
+      calories: Math.round(Number(r.calories) || 0),
+      load: roundNumber(r.trainingLoad, 1) ?? 0
+    }));
+
+  const totals = days.reduce(
+    (acc, d) => {
+      acc.totalCount += d.count;
+      acc.totalDistanceKm += d.distanceKm;
+      acc.totalDurationMin += d.durationMin;
+      acc.totalCalories += d.calories;
+      acc.totalLoad += d.load;
+      return acc;
+    },
+    { totalCount: 0, totalDistanceKm: 0, totalDurationMin: 0, totalCalories: 0, totalLoad: 0 }
+  );
+
+  const streaks = computeHeatmapStreaks(days.map(d => d.date), endDate);
+
+  return {
+    range: {
+      mode: safeYear ? 'year' : 'rolling',
+      year: safeYear ? Number(safeYear) : null,
+      startDate,
+      endDate
+    },
+    availableYears,
+    summary: {
+      activeDays: days.length,
+      totalCount: totals.totalCount,
+      totalDistanceKm: roundNumber(totals.totalDistanceKm, 1) ?? 0,
+      totalDurationMin: roundNumber(totals.totalDurationMin, 0) ?? 0,
+      totalCalories: Math.round(totals.totalCalories),
+      totalLoad: roundNumber(totals.totalLoad, 0) ?? 0,
+      ...streaks
+    },
+    days
+  };
+}
+
 module.exports = {
   trainingActivityTimestamp,
   runningActivityPredicate,
+  coachActivitySports,
   listActivities,
+  readCoachActivities,
   getActivityById,
   activityExists,
   getActivityAccess,
@@ -1436,6 +1623,7 @@ module.exports = {
   getMetricTrend,
   getMetricTrends,
   getCalendarStats,
+  getActivityHeatmap,
   getHeartRateZones,
   getLoadBalance,
   getPersonalBests,

@@ -23,6 +23,9 @@ const authErrorMessages = new Map([
   ['USER_INACTIVE', '该账号当前不可用。'],
   ['LOGIN_BLOCKED', '登录尝试次数过多，请稍后重试。'],
   ['AUTH_RATE_LIMITED', '操作过于频繁，请稍后重试。'],
+  ['REGISTER_RATE_LIMITED', '注册尝试过于频繁，请稍后再试。'],
+  ['REGISTRATION_DISABLED', '当前站点已关闭公开注册，请联系管理员开通账号。'],
+  ['INVALID_INVITE_CODE', '邀请码无效或未填写，请核对后重试。'],
   ['EMAIL_ALREADY_REGISTERED', '该邮箱已注册。'],
   ['USERNAME_ALREADY_REGISTERED', '该用户名已被使用。'],
 ])
@@ -39,7 +42,7 @@ export function hasAuthToken() {
   return Boolean(getAuthToken())
 }
 
-export function normalizeRedirect(value, fallback = '/today') {
+export function normalizeRedirect(value, fallback = '/coach') {
   const target = Array.isArray(value) ? value[0] : value
   if (!target || typeof target !== 'string') return fallback
   if (!target.startsWith('/') || target.startsWith('//')) return fallback

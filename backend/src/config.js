@@ -13,9 +13,21 @@ function parseInteger(value, fallback) {
 
 function getRateLimitDefaults(nodeEnv) {
   if (nodeEnv === 'production') {
-    return { globalMax: 1200, authMax: 60 };
+    return {
+      globalMax: 1200,
+      authMax: 60,
+      registerMax: 10,
+      aiMax: 45,
+      crawlerRefreshMax: 5
+    };
   }
-  return { globalMax: 3000, authMax: 120 };
+  return {
+    globalMax: 3000,
+    authMax: 120,
+    registerMax: 100,
+    aiMax: 300,
+    crawlerRefreshMax: 30
+  };
 }
 
 function parseProviderOrder(value) {
@@ -103,6 +115,8 @@ const config = {
   auth: {
     jwtSecret: process.env.JWT_SECRET || '',
     jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
+    allowPublicRegistration: process.env.ALLOW_PUBLIC_REGISTRATION !== 'false',
+    registrationInviteCode: String(process.env.REGISTRATION_INVITE_CODE || '').trim(),
     admin: {
       username: process.env.ADMIN_USERNAME || 'admin',
       email: process.env.ADMIN_EMAIL || 'admin@example.com',
@@ -116,6 +130,12 @@ const config = {
     globalRateLimitMax: parseInteger(process.env.GLOBAL_RATE_LIMIT_MAX, rateLimitDefaults.globalMax),
     authRateLimitWindowMs: parseInteger(process.env.AUTH_RATE_LIMIT_WINDOW_MS, 15 * 60 * 1000),
     authRateLimitMax: parseInteger(process.env.AUTH_RATE_LIMIT_MAX, rateLimitDefaults.authMax),
+    registerRateLimitWindowMs: parseInteger(process.env.REGISTER_RATE_LIMIT_WINDOW_MS, 60 * 60 * 1000),
+    registerRateLimitMax: parseInteger(process.env.REGISTER_RATE_LIMIT_MAX, rateLimitDefaults.registerMax),
+    aiRateLimitWindowMs: parseInteger(process.env.AI_RATE_LIMIT_WINDOW_MS, 15 * 60 * 1000),
+    aiRateLimitMax: parseInteger(process.env.AI_RATE_LIMIT_MAX, rateLimitDefaults.aiMax),
+    crawlerRefreshRateLimitWindowMs: parseInteger(process.env.CRAWLER_REFRESH_RATE_LIMIT_WINDOW_MS, 15 * 60 * 1000),
+    crawlerRefreshRateLimitMax: parseInteger(process.env.CRAWLER_REFRESH_RATE_LIMIT_MAX, rateLimitDefaults.crawlerRefreshMax),
     loginFailureWindowMs: parseInteger(process.env.LOGIN_FAILURE_WINDOW_MS, 10 * 60 * 1000),
     loginFailureMax: parseInteger(process.env.LOGIN_FAILURE_MAX, 5),
     loginBlockMinutes: parseInteger(process.env.LOGIN_BLOCK_MINUTES, 10)
@@ -126,7 +146,8 @@ const config = {
   maps: {
     amap: {
       key: process.env.AMAP_JS_API_KEY || process.env.AMAP_KEY || '',
-      securityCode: process.env.AMAP_SECURITY_CODE || ''
+      securityCode: process.env.AMAP_SECURITY_CODE || '',
+      serviceHost: process.env.AMAP_SERVICE_HOST || ''
     }
   },
   uploads: {
@@ -138,20 +159,10 @@ const config = {
     maxVideoBytes: parseInteger(process.env.EXPLORE_VIDEO_MAX_BYTES, 200 * 1024 * 1024),
     maxImageBytes: parseInteger(process.env.IMAGE_UPLOAD_MAX_BYTES, 10 * 1024 * 1024)
   },
-  ml: {
-    pythonPath: process.env.ML_PYTHON_PATH || 'python',
-    scriptPath:
-      resolveBackendPath(process.env.ML_PREDICT_SCRIPT, 'ml/predict_running.py'),
-    modelPath:
-      resolveBackendPath(process.env.ML_MODEL_PATH, 'ml/models/running_model.joblib'),
-    coachPredictScriptPath:
-      resolveBackendPath(process.env.ML_COACH_PREDICT_SCRIPT, 'ml/predict_coach.py'),
-    coachModelPath:
-      resolveBackendPath(process.env.ML_COACH_MODEL_PATH, 'ml/models/coach_model.joblib'),
-    timeoutMs: parseInteger(process.env.ML_TIMEOUT_MS, 10000)
-  },
   ai: {
-    agentUseDeepseek: process.env.AGENT_USE_DEEPSEEK === 'true',
+    agentUseDeepseek: process.env.AGENT_USE_DEEPSEEK !== undefined
+      ? process.env.AGENT_USE_DEEPSEEK === 'true'
+      : Boolean(process.env.DEEPSEEK_API_KEY || process.env.AI_DEEPSEEK_API_KEY),
     provider: (process.env.AI_PROVIDER || 'auto').toLowerCase(),
     providerOrder: parseProviderOrder(process.env.AI_PROVIDER_ORDER),
     model: process.env.AI_MODEL || process.env.AI_DEEPSEEK_MODEL || process.env.AI_OLLAMA_MODEL || 'deepseek-chat',
@@ -161,7 +172,9 @@ const config = {
     ollamaBaseUrl: process.env.AI_OLLAMA_BASE_URL || 'http://127.0.0.1:11434',
     ollamaModel: process.env.AI_OLLAMA_MODEL || process.env.AI_MODEL || 'qwen2.5:3b-instruct',
     timeoutMs: parseInteger(process.env.AI_TIMEOUT_MS, 60000),
-    fallbackRules: process.env.AI_FALLBACK_RULES !== 'false'
+    fallbackRules: process.env.AI_FALLBACK_RULES !== 'false',
+    webSearchEnabled: process.env.AGENT_WEB_SEARCH_ENABLED !== 'false',
+    tavilyApiKey: String(process.env.TAVILY_API_KEY || '').trim()
   },
   garmin: {
     pythonPath: process.env.GARMIN_PYTHON_PATH || process.env.ML_PYTHON_PATH || 'python',

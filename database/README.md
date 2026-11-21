@@ -2,13 +2,13 @@
 
 ## 初始化新库
 
-按 [项目 README](../README.md#本地启动) 创建空 MySQL 数据库并配置后端 `DB_*`。依次运行 `npm --prefix backend run db:init` 和 `npm --prefix backend run db:migrate`。初始化脚本使用当前连接选择的库，检查已有表、视图、例程和事件，并拒绝在非空库中运行。阶段 0 基线包含 37 张表，应用目前全部迁移后共有 47 张。MySQL DDL 会逐条提交，若基线初始化中断，请检查出错原因，并为重试使用新的空开发库。
+按 [项目 README](../README.md#本地启动) 创建空 MySQL 数据库并配置后端 `DB_*`。依次运行 `npm --prefix backend run db:init` 和 `npm --prefix backend run db:migrate`。初始化脚本使用当前连接选择的库，检查已有表、视图、例程和事件，并拒绝在非空库中运行。阶段 0 基线包含 37 张表，应用全部增量迁移（`02`–`13`）后包含完整计划、教练记忆与赛事数据表。MySQL DDL 会逐条提交，若基线初始化中断，请检查出错原因，并为重试使用新的空开发库。
 
-`npm --prefix backend run db:verify` 只读校验应用启动依赖。`npm --prefix backend run seed:admin` 按本地配置创建或更新指定管理员账号。阶段 0 不迁移旧库的业务数据。
+`npm --prefix backend run db:verify` 只读校验应用启动依赖（当前校验 26 张核心业务表）。`npm --prefix backend run seed:admin` 按本地配置创建或更新指定管理员账号。阶段 0 不迁移旧库的业务数据。
 
 ## 增量升级
 
-已初始化的 SpAgent 开发库运行 `npm --prefix backend run db:migrate`。迁移从 `02_training_plans.sql` 依次执行到 `08_garmin_sync_queue.sql`，可重新执行。阶段 3 新增训练关联和修订记录，并将 Garmin 外部 ID 唯一索引从全局改为按账号。阶段 4 新增训练偏好设置。迁移 06 给活动表添加训练时间虚拟生成列和账号、时间复合索引，保留统一的北京时间规则。迁移 07 新增训练提醒偏好和按账号、类型、周期去重的提醒记录。迁移 08 为 Garmin 同步任务添加进行中唯一索引、工作租约和尝试次数。
+已初始化的 SpAgent 开发库运行 `npm --prefix backend run db:migrate`。迁移从 `02_training_plans.sql` 依次执行到 `13_user_marathon_events.sql`，全部幂等可重复执行。迁移 11 新增按账号隔离的教练长期记忆表 `AthleteMemories`；迁移 12 新增国内半马/全马自动爬虫赛历表 `MarathonEvents`；迁移 13 新增用户云端目标赛事表 `UserMarathonEvents`（与 AI 教练备赛上下文联动）。
 
 升级到迁移 08 前先停止旧后端，避免同步执行与迁移重叠。历史已结束任务保留，缺少续跑参数的旧排队或执行记录会标为已中断，可在新版页面重新提交。
 
@@ -32,3 +32,7 @@ mysql --host=127.0.0.1 --user=spagent_local --password --default-character-set=u
 ## 旧库
 
 阶段 0 建表快照来自上游结构回放。上游 `01_schema.sql` 会清理基础表，`import_shared_seed.ps1` 会重建整个库。历史 `09`、`10`、`16` 涉及删除表或列，`15` 含 MySQL 客户端 `DELIMITER`。已审计上游脚本，后续对既有数据库只交付并应用经过测试的增量迁移。
+
+直接接入已有运动库时，用迁移账号运行 `db:migrate` 和 `db:verify`，再将服务进程的 `DB_NAME` 设为该库名，并使用仅获该库读写权限的运行账号启动。库里的账号、认证和活动归属沿用原有记录。打开 App 后以记录所属的原邮箱登录。
+
+本机旧结构先在独立 MySQL 中仅复制表定义，使用合成记录连续运行两轮 02–09。原活动的归属和时间保持一致，新会话、反馈和跨账号隔离通过验证。实库只执行增量迁移、创建数据库运行账号及只读验证。

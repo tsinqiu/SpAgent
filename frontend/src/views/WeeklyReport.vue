@@ -170,20 +170,23 @@ watch(() => route.query.week, load, { immediate: true })
 <style scoped>
 .weekly-report-period,
 .weekly-report-card {
-  padding: var(--space-4);
+  padding: 20px;
 }
 
 .weekly-report-period {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  grid-template-columns: 40px minmax(0, 1fr) 40px;
   align-items: center;
   gap: var(--space-2);
+  padding: 8px 4px;
   text-align: center;
 }
 
 .weekly-report-period h1 {
   margin: 0;
-  font-size: clamp(15px, 5cqi, 22px);
+  font-size: clamp(16px, 4.8cqi, 19px);
+  font-weight: 600;
+  letter-spacing: -0.02em;
   text-wrap: balance;
   font-variant-numeric: tabular-nums;
 }
@@ -193,43 +196,48 @@ watch(() => route.query.week, load, { immediate: true })
 .weekly-report-plan p {
   margin: 4px 0 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12.5px;
 }
 
 .weekly-report-period button {
   display: grid;
   place-items: center;
-  min-height: 44px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  min-height: 40px;
+  border: 0;
+  border-radius: 999px;
   background: var(--panel);
   color: var(--text);
+  box-shadow: var(--shadow-sm);
 }
 
-.weekly-report-period button:disabled { opacity: 0.45; }
+.weekly-report-period button:disabled { opacity: 0.38; box-shadow: none; }
 
 .weekly-report-period .weekly-report-now {
   grid-column: 2;
   justify-self: center;
-  padding-inline: 12px;
+  min-height: 32px;
+  padding-inline: 14px;
+  font-size: 12.5px;
+  font-weight: 560;
   color: var(--green-strong);
 }
 
 .weekly-report-card {
   display: grid;
-  gap: var(--space-4);
+  gap: 16px;
   min-width: 0;
 }
 
 .weekly-report-card h2 {
   margin: 0;
-  font-size: 18px;
+  font-size: 17px;
+  font-weight: 600;
 }
 
 .weekly-report-totals {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-3);
+  gap: 12px;
 }
 
 .weekly-report-totals > div {
@@ -240,23 +248,27 @@ watch(() => route.query.week, load, { immediate: true })
 
 .weekly-report-totals span {
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .weekly-report-totals strong {
+  font-size: 16px;
+  font-weight: 620;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
 
 .weekly-report-primary {
   grid-column: 1 / -1;
-  padding: var(--space-4);
-  border-radius: var(--radius);
-  background: color-mix(in srgb, var(--app-green) 11%, var(--panel));
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: var(--panel-soft);
 }
 
 .weekly-report-primary strong {
-  font-size: clamp(22px, 8cqi, 36px);
+  font-size: clamp(24px, 7.5cqi, 34px);
+  font-weight: 650;
+  letter-spacing: -0.025em;
   line-height: 1.15;
 }
 

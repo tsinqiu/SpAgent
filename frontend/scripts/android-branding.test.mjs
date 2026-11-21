@@ -19,6 +19,7 @@ const [
   launcherForeground,
   legacyBackground,
   legacyForeground,
+  mark,
 ] = await Promise.all([
   source('android/app/src/main/AndroidManifest.xml'),
   source('android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml'),
@@ -27,6 +28,7 @@ const [
   source('android/app/src/main/res/drawable/spagent_launcher_foreground.xml'),
   source('android/app/src/main/res/drawable/ic_launcher_background.xml'),
   source('android/app/src/main/res/drawable-v24/ic_launcher_foreground.xml'),
+  readFile(new URL('../android/app/src/main/res/drawable-nodpi/spagent_icon_adaptive.png', import.meta.url)),
 ])
 
 test('Android launcher icon uses SpAgent adaptive icon resources', () => {
@@ -38,17 +40,10 @@ test('Android launcher icon uses SpAgent adaptive icon resources', () => {
   assert.match(adaptiveRoundIcon, /@drawable\/spagent_launcher_foreground/)
 })
 
-test('SpAgent launcher art is deep green, simple, and not the default Android mark', () => {
-  assert.match(launcherBackground, /#2e681d/)
-  assert.match(launcherBackground, /#15b66a/)
-  assert.match(launcherBackground, /SpAgent simple route launcher background/)
-  assert.match(launcherForeground, /SpAgent simple route runner launcher foreground/)
-  assert.match(launcherForeground, /#ffffff/)
-  assert.match(launcherForeground, /#f6d34d/)
-  assert.match(launcherForeground, /#15b66a/)
-  assert.match(launcherForeground, /strokeLineCap="round"/)
-  assert.doesNotMatch(launcherForeground, /M59,39l-9,14/)
-  assert.doesNotMatch(launcherForeground, /62\.94,56\.92/)
-  assert.doesNotMatch(legacyForeground, /62\.94,56\.92/)
-  assert.doesNotMatch(legacyBackground, /#26A69A/)
+test('SpAgent launcher uses the same dark background and centered mark on older Android versions', () => {
+  for (const background of [launcherBackground, legacyBackground]) assert.match(background, /#0F1014/i)
+  for (const foreground of [launcherForeground, legacyForeground]) assert.match(foreground, /@drawable\/spagent_icon_adaptive/)
+  assert.equal(mark.subarray(0, 8).toString('hex'), '89504e470d0a1a0a')
+  assert.equal(mark.readUInt32BE(16), 432)
+  assert.equal(mark.readUInt32BE(20), 432)
 })

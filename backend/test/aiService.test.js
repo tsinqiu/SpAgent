@@ -3,10 +3,11 @@ const assert = require('node:assert/strict');
 
 const aiService = require('../src/services/aiService');
 const activityService = require('../src/services/activityService');
-const coachMlService = require('../src/services/coachMlService');
+const trainingReadinessService = require('../src/services/trainingReadinessService');
 const config = require('../src/config');
 const db = require('../src/db');
 const { ApiError } = require('../src/errors');
+const { localToday, mondayOf } = require('../src/services/trainingPlanInput');
 
 function withActivityStubs(stubs, fn) {
   const originals = {};
@@ -24,26 +25,23 @@ function withActivityStubs(stubs, fn) {
     });
 }
 
-function withAiEnvironment({ activityStubs = {}, dbQuery, aiConfig = {}, mlConfig = {}, mlPredict, fetchImpl }, fn) {
+function withAiEnvironment({ activityStubs = {}, dbQuery, aiConfig = {}, mlPredict, fetchImpl }, fn) {
   const originalDbQuery = db.query;
   const originalFetch = global.fetch;
   const originalAiConfig = { ...config.ai };
-  const originalMlConfig = { ...config.ml };
-  const originalPredict = coachMlService.predict;
+  const originalPredict = trainingReadinessService.predict;
 
   if (dbQuery) db.query = dbQuery;
   if (fetchImpl) global.fetch = fetchImpl;
-  if (mlPredict) coachMlService.predict = mlPredict;
+  if (mlPredict) trainingReadinessService.predict = mlPredict;
   Object.assign(config.ai, aiConfig);
-  Object.assign(config.ml, { coachModelPath: '__missing_coach_model__.joblib', ...mlConfig });
 
   return withActivityStubs(activityStubs, fn)
     .finally(() => {
       db.query = originalDbQuery;
       global.fetch = originalFetch;
       Object.assign(config.ai, originalAiConfig);
-      Object.assign(config.ml, originalMlConfig);
-      coachMlService.predict = originalPredict;
+      trainingReadinessService.predict = originalPredict;
     });
 }
 
@@ -144,7 +142,7 @@ test('aiService stays serviceable through rules when DeepSeek is not configured'
     assert.equal(health.activeProvider, 'rules');
     assert.equal(health.deepseekConfigured, false);
     assert.equal(health.rulesAvailable, true);
-    assert.equal(health.coach.status, 'fallback');
+    assert.equal(health.readiness.status, 'ok');
   });
 });
 
@@ -296,7 +294,7 @@ test('aiService daily brief accepts a DeepSeek recommendation and retains local 
     assert.equal(requestBody.messages[0].role, 'system');
     assert.equal(requestBody.messages[1].role, 'user');
     assert.match(requestBody.messages[0].content, /近期运动明细/);
-    assert.match(requestBody.messages[0].content, /本地模型输出/);
+    assert.match(requestBody.messages[0].content, /就绪度规则评估/);
     assert.match(requestBody.messages[1].content, /只返回一个 JSON 对象/);
     assert.doesNotMatch(JSON.stringify(result), /近期运动明细|system prompt|28天运动汇总/);
   });
@@ -392,7 +390,7 @@ test('aiService sends RAG context as DeepSeek system message only', async () => 
     assert.equal(requestBody.messages[1].content, '今天适合训练吗？');
     assert.match(requestBody.messages[0].content, /近期运动明细/);
     assert.match(requestBody.messages[0].content, /多云/);
-    assert.match(requestBody.messages[0].content, /本地模型输出/);
+    assert.match(requestBody.messages[0].content, /就绪度规则评估/);
     assert.doesNotMatch(requestBody.messages[1].content, /近期运动明细|28天运动汇总|system prompt/);
     assert.doesNotMatch(JSON.stringify(result), /近期运动明细|system prompt|28天运动汇总/);
   });

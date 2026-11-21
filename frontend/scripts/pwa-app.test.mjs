@@ -17,11 +17,11 @@ async function json(path) {
   return text ? JSON.parse(text) : null
 }
 
-const [indexHtml, manifest, iconSvg, maskableSvg] = await Promise.all([
+const [indexHtml, manifest, icon, maskable] = await Promise.all([
   source('index.html'),
   json('public/manifest.webmanifest'),
-  source('public/icons/spagent-icon.svg'),
-  source('public/icons/spagent-maskable.svg'),
+  readFile(new URL('../public/icons/spagent-icon.png', import.meta.url)),
+  readFile(new URL('../public/icons/spagent-maskable.png', import.meta.url)),
 ])
 
 test('rebranded browser storage preserves a session and per-activity drafts across the upgrade', () => {
@@ -51,15 +51,15 @@ test('index advertises SpAgent as an installable mobile app', () => {
   assert.match(indexHtml, /<meta\s+name="theme-color"\s+content="#15b66a"\s*\/?>/)
   assert.match(indexHtml, /<meta\s+name="apple-mobile-web-app-capable"\s+content="yes"\s*\/?>/)
   assert.match(indexHtml, /<meta\s+name="apple-mobile-web-app-title"\s+content="SpAgent"\s*\/?>/)
-  assert.match(indexHtml, /<link\s+rel="apple-touch-icon"\s+href="\/icons\/spagent-maskable\.svg"\s*\/?>/)
+  assert.match(indexHtml, /<link\s+rel="apple-touch-icon"\s+href="\/icons\/spagent-maskable\.png"\s*\/?>/)
 })
 
-test('manifest uses the RQ-style green runner app identity', () => {
+test('the installed web app opens the SpAgent conversation workspace', () => {
   assert.ok(manifest, 'manifest.webmanifest should exist')
   assert.equal(manifest.name, 'SpAgent')
   assert.equal(manifest.short_name, 'SpAgent')
   assert.equal(manifest.display, 'standalone')
-  assert.equal(manifest.start_url, '/today')
+  assert.equal(manifest.start_url, '/coach')
   assert.equal(manifest.scope, '/')
   assert.equal(manifest.theme_color, '#15b66a')
   assert.equal(manifest.background_color, '#eef8f2')
@@ -69,21 +69,16 @@ test('manifest uses the RQ-style green runner app identity', () => {
 test('manifest provides regular and maskable app icons', () => {
   assert.ok(manifest, 'manifest.webmanifest should exist')
   assert.ok(Array.isArray(manifest.icons))
-  assert.ok(manifest.icons.some((icon) => icon.src === '/icons/spagent-icon.svg' && icon.purpose === 'any'))
-  assert.ok(manifest.icons.some((icon) => icon.src === '/icons/spagent-maskable.svg' && icon.purpose === 'maskable'))
-  assert.ok(manifest.icons.every((icon) => icon.type === 'image/svg+xml'))
+  assert.ok(manifest.icons.some((item) => item.src === '/icons/spagent-icon.png' && item.purpose === 'any'))
+  assert.ok(manifest.icons.some((item) => item.src === '/icons/spagent-maskable.png' && item.purpose === 'maskable'))
+  assert.ok(manifest.icons.every((item) => item.type === 'image/png' && item.sizes === '512x512'))
 })
 
-test('app icons carry a simple deep-green route runner mark', () => {
-  assert.match(iconSvg, /#2e681d/)
-  assert.match(iconSvg, /#15b66a/)
-  assert.match(iconSvg, /SpAgent route runner/)
-  assert.match(maskableSvg, /#2e681d/)
-  assert.match(maskableSvg, /#15b66a/)
-  assert.match(maskableSvg, /SpAgent route runner/)
-  assert.match(maskableSvg, /viewBox="0 0 512 512"/)
-  assert.match(iconSvg, /stroke-linecap="round"/)
-  assert.match(iconSvg, /#f6d34d/)
-  assert.doesNotMatch(iconSvg, />MC</)
-  assert.doesNotMatch(iconSvg, /cx="323"\s+cy="150"\s+r="35"/)
+test('the two icon files are full-resolution PNG assets', () => {
+  for (const file of [icon, maskable]) {
+    assert.equal(file.subarray(0, 8).toString('hex'), '89504e470d0a1a0a')
+    assert.equal(file.readUInt32BE(16), 512)
+    assert.equal(file.readUInt32BE(20), 512)
+  }
+  assert.notDeepEqual(icon, maskable)
 })

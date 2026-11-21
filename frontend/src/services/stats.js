@@ -60,6 +60,11 @@ export async function getCalendarStats(params = {}) {
   return envelope.data || { days: [] }
 }
 
+export async function getActivityHeatmap(params = {}) {
+  const envelope = await getEnvelope('/stats/heatmap', { params })
+  return envelope.data || { range: {}, availableYears: [], summary: {}, days: [] }
+}
+
 export async function getPersonalBests(params = {}) {
   const envelope = await getEnvelope('/stats/personal-bests', { params })
   return envelope.data || { steps: [], running: [], cycling: [], swimming: [], overall: [] }

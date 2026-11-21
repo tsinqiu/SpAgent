@@ -44,6 +44,10 @@ function hasSessionTimeConstraint(question) {
   return sessionCapPattern.test(text) || explicitCapPattern.test(text) || looseSessionCapPattern.test(text);
 }
 
+function isDurationConstrainedPlan(question) {
+  return hasSessionTimeConstraint(question) && /走跑|跑步|训练|课表|热身/.test(question) && /计划|方案|安排|(?:怎么|如何)(?:练|跑|走)/.test(question);
+}
+
 function interpretWithRules(message) {
   const text = message.normalize('NFKC').toLowerCase();
   if (/疼|受伤|胸痛|晕厥|刚做完手术/.test(text)) {
@@ -55,7 +59,7 @@ function interpretWithRules(message) {
   if (/(?:调整|修改|改到|改为|挪到|移到|取消).{0,12}(?:计划|训练|周[一二三四五六日]|课表)|(?:计划|课表).{0,8}(?:调整|修改|改到|挪到|取消)/.test(text)) {
     return { intent: 'blocked', reply: '可以在「训练计划」中手动调整现有课表。这里可以按新的目标和可训练日生成一份新草案。' };
   }
-  if (/马拉松|半马|(?:10|十)\s*(?:公里|km)|配速提升|提速|破\s*\d|刷\s*pb|高强度|间歇跑|骑行|游泳/.test(text)) {
+  if (/马拉松|全马|半马|(?:10|十)\s*(?:公里|km)|配速提升|提速|破\s*\d|刷\s*pb|高强度|间歇跑|骑行|游泳/.test(text)) {
     return { intent: 'blocked', reply: '目前可生成首次 5 公里和规律跑步的四周轻松训练。你更想尝试哪个目标？' };
   }
   if (/(?:当前|我的|现有|执行中).{0,6}(?:计划|课表)/.test(text) && !/生成|制定|新建|做一|安排一/.test(text)) {
@@ -291,5 +295,5 @@ function evidence(context, { hasHistory, hasRecovery }, assumptions) {
 
 module.exports = {
   interpretWithRules, withTrainingPreferences, validateModelIntent, checkConstraints, buildPlan, evidence, localToday,
-  resumePlanIntent, createClarification, planWithDefaults, hasSessionTimeConstraint
+  resumePlanIntent, createClarification, planWithDefaults, isDurationConstrainedPlan
 };

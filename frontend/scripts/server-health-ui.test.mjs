@@ -81,8 +81,8 @@ test('download page is the web-only home for the server-hosted Android package',
   assert.match(routerSource, /function\s+isNativeRuntime\(\)/)
   assert.match(routerSource, /path:\s*['"]\/download['"]/)
   assert.match(routerSource, /name:\s*['"]download['"]/)
-  assert.match(routerSource, /redirect:\s*\(\)\s*=>\s*\(isNativeRuntime\(\)\s*\|\|\s*hasAuthToken\(\)\s*\?\s*['"]\/today['"]\s*:\s*['"]\/download['"]\)/)
-  assert.match(routerSource, /to\.name === 'download'[\s\S]*?isNativeRuntime\(\)[\s\S]*?hasAuthToken\(\) \? \{ name: 'today' \} : \{ name: 'login' \}/)
+  assert.match(routerSource, /redirect:\s*\(\)\s*=>\s*\(isNativeRuntime\(\)\s*\|\|\s*hasAuthToken\(\)\s*\?\s*['"]\/coach['"]\s*:\s*['"]\/download['"]\)/)
+  assert.match(routerSource, /to\.name === 'download'[\s\S]*?isNativeRuntime\(\)[\s\S]*?hasAuthToken\(\) \? \{ name: 'coach' \} : \{ name: 'login' \}/)
   assert.match(downloadView, /<ServerHealthBadge\b[^>]*\/>/)
   assert.match(downloadView, /<a\b[^>]*v-if="apkAvailable"[^>]*href="\/downloads\/spagent-release\.apk"[^>]*\bdownload\b/)
   assert.doesNotMatch(downloadView, /\/downloads\/spagent-debug\.apk/)
@@ -105,7 +105,7 @@ test('the home page links web users to Android downloads and the download page l
   assert.match(todayView, /showApkDownloadEntry\s*=\s*!Capacitor\.isNativePlatform\(\)/)
   assert.match(todayView, /下载安卓版 APK/)
   assert.doesNotMatch(todayView, /\/downloads\/spagent-release\.apk/)
-  assert.match(downloadView, /<RouterLink\b[^>]*to="\/today"[^>]*>[\s\S]*?使用网页版[\s\S]*?<\/RouterLink>/)
+  assert.match(downloadView, /<RouterLink\b[^>]*to="\/coach"[^>]*>[\s\S]*?使用网页版[\s\S]*?<\/RouterLink>/)
 })
 
 test('the service status badge provides distinct styles for degraded and offline states', () => {

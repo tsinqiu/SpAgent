@@ -1,12 +1,11 @@
 <template>
   <div class="page-stack route-library-page">
     <section class="route-library-hero">
-      <div>
-        <p class="overline">Route Library</p>
+      <div class="route-library-hero__copy">
         <h2>运动路线</h2>
-        <p>从历史轨迹、热门路线或自定义地点中建立自己的路线库。</p>
+        <p>从历史 GPS 轨迹、经典跑道或自定义地点管理路线库</p>
       </div>
-      <button type="button" class="secondary-link" @click="loadActivities">刷新历史</button>
+      <button type="button" class="route-refresh-btn" @click="loadActivities">刷新</button>
     </section>
 
     <nav class="tool-tabs" aria-label="路线视图">
@@ -245,81 +244,105 @@ onMounted(loadActivities)
 </script>
 
 <style scoped>
-.route-library-page { gap: 16px; }
+.route-library-page { gap: 12px; }
 .route-library-hero {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 18px;
-  border-radius: var(--radius-lg);
-  background: linear-gradient(135deg, color-mix(in srgb, var(--app-green) 18%, var(--panel)), var(--panel));
-  border: 1px solid color-mix(in srgb, var(--app-green) 16%, var(--border));
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: var(--panel);
   box-shadow: var(--shadow-sm);
 }
-.route-library-hero h2 { margin: 3px 0 6px; color: var(--text); font-size: 24px; line-height: 1.15; }
-.route-library-hero p { margin: 0; color: var(--muted); line-height: 1.5; }
+.route-library-hero__copy { display: grid; gap: 3px; min-width: 0; }
+.route-library-hero h2 { margin: 0; color: var(--text); font-size: 16.5px; font-weight: 660; line-height: 1.2; }
+.route-library-hero p { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.4; }
+.route-refresh-btn {
+  flex: 0 0 auto;
+  height: 30px;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
 .tool-tabs {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-  padding: 4px;
-  border-radius: var(--radius-pill);
-  background: color-mix(in srgb, var(--app-green) 8%, var(--panel));
+  gap: 3px;
+  padding: 3px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--text) 6%, var(--bg));
 }
 .tool-tabs button {
-  min-height: 38px;
+  height: 32px;
+  min-height: 32px;
   border: 0;
-  border-radius: var(--radius-pill);
+  border-radius: 9px;
   background: transparent;
   color: var(--muted);
-  font-weight: 900;
+  font-size: 12.5px;
+  font-weight: 560;
+  cursor: pointer;
 }
-.tool-tabs button.active { background: var(--panel); color: var(--app-green-dark); box-shadow: var(--shadow-sm); }
-.route-section { display: grid; gap: 10px; }
+.tool-tabs button.active {
+  background: var(--panel);
+  color: var(--text);
+  font-weight: 650;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.route-section { display: grid; gap: 8px; }
 .route-card,
 .route-empty-card,
 .route-form-card {
-  padding: 16px;
-  border-radius: var(--radius-lg);
+  padding: 13px 14px;
+  border-radius: 16px;
   background: var(--panel);
-  border: 1px solid color-mix(in srgb, var(--app-green) 12%, var(--border));
   box-shadow: var(--shadow-sm);
 }
 .route-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
+  gap: 10px;
   align-items: center;
 }
-.route-card h3 { margin: 0; color: var(--text); font-size: 17px; line-height: 1.25; }
+.route-card h3 { margin: 0; color: var(--text); font-size: 14.5px; font-weight: 640; line-height: 1.3; }
 .route-card p,
 .route-card small,
-.route-empty-card span { display: block; margin: 5px 0 0; color: var(--muted); line-height: 1.4; }
-.route-card__actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-.route-empty-card { display: grid; gap: 5px; border-style: dashed; color: var(--muted); }
-.route-empty-card strong { color: var(--text); }
-.route-form-card { display: grid; gap: 14px; }
+.route-empty-card span { display: block; margin: 3px 0 0; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.route-card__actions { display: flex; gap: 6px; flex-wrap: nowrap; justify-content: flex-end; }
+.route-card :is(.primary-link, .secondary-link, .danger-link) {
+  height: 30px;
+  min-height: 30px;
+  padding: 0 11px;
+  font-size: 12px;
+  border-radius: 999px;
+}
+.route-empty-card { display: grid; gap: 4px; color: var(--muted); }
+.route-empty-card strong { color: var(--text); font-size: 14px; }
+.route-form-card { display: grid; gap: 12px; }
+.route-form-card h2 { margin: 0; font-size: 15.5px; font-weight: 650; }
 .route-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.route-form-grid label { display: grid; gap: 6px; min-width: 0; }
-.route-form-grid span { color: var(--muted); font-size: 12px; font-weight: 800; }
+.route-form-grid label { display: grid; gap: 5px; min-width: 0; }
+.route-form-grid span { color: var(--muted); font-size: 12px; font-weight: 600; }
 .route-form-grid :is(input, select, textarea) {
   width: 100%;
   min-width: 0;
-  border: 1px solid color-mix(in srgb, var(--app-green) 12%, var(--border));
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--panel) 82%, var(--panel-soft));
+  border: 0.5px solid var(--border);
+  border-radius: 11px;
+  background: var(--bg);
   color: var(--text);
   font: inherit;
-  padding: 10px 12px;
+  font-size: 13px;
+  padding: 9px 11px;
 }
 .route-form-wide { grid-column: 1 / -1; }
 @container phone-frame (max-width: 390px) {
-  .route-library-hero,
-  .route-card { grid-template-columns: 1fr; align-items: stretch; }
-  .route-card__actions,
-  .route-card__actions button,
-  .route-library-hero button { width: 100%; }
   .route-form-grid { grid-template-columns: 1fr; }
 }
 </style>

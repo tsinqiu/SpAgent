@@ -4,14 +4,16 @@ import assert from 'node:assert/strict'
 import * as product from '../src/constants/product.js'
 import * as insights from '../src/utils/productInsights.js'
 
-test('product navigation keeps its five primary destinations, including recording', () => {
-  assert.deepEqual(product.primaryNavigation.map(({ label, to }) => ({ label, to })), [
-    { label: '今日', to: '/today' },
-    { label: '运动', to: '/activities' },
-    { label: '记录', to: '/record' },
-    { label: '探索', to: '/explore' },
-    { label: '运动圈', to: '/community' },
-  ])
+test('workspace groups advanced features by task with a single destination per link', () => {
+  const groups = Object.fromEntries(product.workspaceNavigation.map(group => [group.label, group.items.map(item => item.to)]))
+  assert.deepEqual(groups, {
+    训练: ['/today', '/training-plans', '/explore/weekly-report'],
+    数据: ['/activities', '/record', '/status'],
+    发现: ['/explore/events', '/explore', '/community'],
+    账号: ['/me'],
+  })
+  const destinations = Object.values(groups).flat()
+  assert.equal(new Set(destinations).size, destinations.length)
 })
 
 test('product constants do not ship hard-coded user race goals', () => {

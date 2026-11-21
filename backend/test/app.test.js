@@ -53,28 +53,7 @@ function buildApp(overrides = {}) {
     getTodayHealth: async () => ({ steps: 1000 })
   };
 
-  const mlService = overrides.mlService || {
-    FEATURE_NAMES: [
-      'distanceM',
-      'durationS',
-      'movingDurationS',
-      'elapsedDurationS',
-      'avgSpeedMps',
-      'maxSpeedMps',
-      'avgHeartRateBpm',
-      'maxHeartRateBpm',
-      'avgCadenceSpm',
-      'maxCadenceSpm',
-      'elevationGainM',
-      'elevationLossM',
-      'avgStrideLengthCm',
-      'normalizedPowerW'
-    ],
-    getHealth: async () => ({
-      status: 'ok',
-      modelVersion: 'running-v1',
-      performanceProfile: { status: 'ok', modelVersion: 'performance-v1' }
-    }),
+  const performanceProfileService = overrides.performanceProfileService || {
     getPerformanceProfile: async (user) => ({
       trainingIndex: {
         score: 68,
@@ -98,15 +77,8 @@ function buildApp(overrides = {}) {
         { key: 'stability', label: '稳定', score: 58 }
       ],
       dataQuality: { score: 82, warnings: [] },
-      model: { modelVersion: 'performance-v1', provider: 'local_performance_model', confidence: 0.8 },
+      model: { modelVersion: 'performance-v1', provider: 'rules_performance_engine', confidence: 0.8 },
       userId: user.id
-    }),
-    runPrediction: async () => ({
-      predictedTrainingLoadLevel: 'medium',
-      fatigueRisk: 'medium',
-      recoveryAdvice: 'keep recovery balanced',
-      confidence: 0.82,
-      modelVersion: 'running-v1'
     })
   };
 
@@ -314,7 +286,7 @@ function buildApp(overrides = {}) {
   return createApp({
     healthService,
     activityService,
-    mlService,
+    performanceProfileService,
     aiService,
     authService,
     securityService,
@@ -357,17 +329,27 @@ test('GET /api/health returns service and database status', async () => {
   assert.equal(typeof response.body.data.cache.stats.size, 'number');
 });
 
-test('GET /api/system/public-config returns public map runtime config without login', async () => {
+test('GET /api/system/public-config returns public map runtime config without login and hides raw securityCode behind serviceHost', async () => {
   const originalAmap = { ...config.maps.amap };
   config.maps.amap.key = 'test-amap-key';
   config.maps.amap.securityCode = 'test-amap-security';
+  config.maps.amap.serviceHost = '';
   try {
     const response = await request(buildApp()).get('/api/system/public-config');
-
     assert.equal(response.status, 200);
     assert.deepEqual(response.body.data.maps.amap, {
       key: 'test-amap-key',
+      serviceHost: '',
       securityCode: 'test-amap-security'
+    });
+
+    config.maps.amap.serviceHost = 'https://spagent.example.com/_AMapService';
+    const proxied = await request(buildApp()).get('/api/system/public-config');
+    assert.equal(proxied.status, 200);
+    assert.deepEqual(proxied.body.data.maps.amap, {
+      key: 'test-amap-key',
+      serviceHost: 'https://spagent.example.com/_AMapService',
+      securityCode: ''
     });
   } finally {
     config.maps.amap = originalAmap;
@@ -978,25 +960,16 @@ test('GET /api/dashboard/overview returns aggregated dashboard data', async () =
   statsCache.clear();
 });
 
-test('GET /api/ml/health returns model status', async () => {
-  const response = await request(buildApp()).get('/api/ml/health');
-
-  assert.equal(response.status, 200);
-  assert.equal(response.body.data.status, 'ok');
-  assert.equal(response.body.data.modelVersion, 'running-v1');
-  assert.equal(response.body.data.performanceProfile.modelVersion, 'performance-v1');
-});
-
-test('GET /api/ml/performance-profile requires login', async () => {
-  const response = await request(buildApp()).get('/api/ml/performance-profile');
+test('GET /api/training/performance-profile requires login', async () => {
+  const response = await request(buildApp()).get('/api/training/performance-profile');
 
   assert.equal(response.status, 401);
   assert.equal(response.body.error.code, 'AUTH_REQUIRED');
 });
 
-test('GET /api/ml/performance-profile returns training index and running power for current user', async () => {
+test('GET /api/training/performance-profile returns training index and running power for current user', async () => {
   const response = await request(buildApp())
-    .get('/api/ml/performance-profile')
+    .get('/api/training/performance-profile')
     .set('Authorization', 'Bearer valid-user-token');
 
   assert.equal(response.status, 200);
@@ -1005,139 +978,6 @@ test('GET /api/ml/performance-profile returns training index and running power f
   assert.equal(response.body.data.runningPower.score, 72);
   assert.equal(response.body.data.fivePower.length, 5);
   assert.equal(response.body.data.model.modelVersion, 'performance-v1');
-});
-
-test('POST /api/ml/running-prediction requires login', async () => {
-  const response = await request(buildApp()).post('/api/ml/running-prediction').send({ distanceM: 5000 });
-
-  assert.equal(response.status, 401);
-  assert.equal(response.body.error.code, 'AUTH_REQUIRED');
-});
-
-test('POST /api/ml/running-prediction validates missing feature', async () => {
-  const response = await request(buildApp())
-    .post('/api/ml/running-prediction')
-    .set('Authorization', 'Bearer valid-user-token')
-    .send({ distanceM: 5000 });
-
-  assert.equal(response.status, 400);
-  assert.equal(response.body.error.code, 'INVALID_ML_INPUT');
-});
-
-test('POST /api/ml/running-prediction returns running analysis result', async () => {
-  const payload = {
-    distanceM: 5000,
-    durationS: 1800,
-    movingDurationS: 1780,
-    elapsedDurationS: 1850,
-    avgSpeedMps: 2.8,
-    maxSpeedMps: 4.5,
-    avgHeartRateBpm: 150,
-    maxHeartRateBpm: 175,
-    avgCadenceSpm: 165,
-    maxCadenceSpm: 190,
-    elevationGainM: 30,
-    elevationLossM: 30,
-    avgStrideLengthCm: 100,
-    normalizedPowerW: 220
-  };
-
-  const response = await request(buildApp())
-    .post('/api/ml/running-prediction')
-    .set('Authorization', 'Bearer valid-user-token')
-    .send(payload);
-
-  assert.equal(response.status, 200);
-  assert.equal(response.body.data.predictedTrainingLoadLevel, 'medium');
-  assert.equal(response.body.data.fatigueRisk, 'medium');
-  assert.equal(response.body.data.modelVersion, 'running-v1');
-});
-
-test('POST /api/ml/running-prediction fills optional frontend detail fields', async () => {
-  let captured;
-  const app = buildApp({
-    mlService: {
-      FEATURE_NAMES: [
-        'distanceM',
-        'durationS',
-        'movingDurationS',
-        'elapsedDurationS',
-        'avgSpeedMps',
-        'maxSpeedMps',
-        'avgHeartRateBpm',
-        'maxHeartRateBpm',
-        'avgCadenceSpm',
-        'maxCadenceSpm',
-        'elevationGainM',
-        'elevationLossM',
-        'avgStrideLengthCm',
-        'normalizedPowerW'
-      ],
-      getHealth: async () => ({ status: 'ok' }),
-      runPrediction: async (features) => {
-        captured = features;
-        return {
-          predictedTrainingLoadLevel: 'medium',
-          fatigueRisk: 'low',
-          recoveryAdvice: 'ok',
-          confidence: 0.75,
-          modelVersion: 'running-v1'
-        };
-      }
-    }
-  });
-  const payload = {
-    distanceM: 5000,
-    durationS: 1800,
-    movingDurationS: 1780,
-    elapsedDurationS: 1850,
-    avgSpeedMps: 2.8,
-    maxSpeedMps: 4.5,
-    avgHeartRateBpm: 150,
-    maxHeartRateBpm: 175,
-    avgCadenceSpm: 165,
-    elevationGainM: 30,
-    elevationLossM: 30,
-    avgStrideLengthCm: 100,
-    avgPowerW: 210
-  };
-
-  const response = await request(app)
-    .post('/api/ml/running-prediction')
-    .set('Authorization', 'Bearer valid-user-token')
-    .send(payload);
-
-  assert.equal(response.status, 200);
-  assert.equal(captured.maxCadenceSpm, 165);
-  assert.equal(captured.normalizedPowerW, 210);
-});
-
-test('POST /api/ml/running-prediction allows local API origin', async () => {
-  const payload = {
-    distanceM: 5000,
-    durationS: 1800,
-    movingDurationS: 1780,
-    elapsedDurationS: 1850,
-    avgSpeedMps: 2.8,
-    maxSpeedMps: 4.5,
-    avgHeartRateBpm: 150,
-    maxHeartRateBpm: 175,
-    avgCadenceSpm: 165,
-    maxCadenceSpm: 190,
-    elevationGainM: 30,
-    elevationLossM: 30,
-    avgStrideLengthCm: 100,
-    normalizedPowerW: 220
-  };
-
-  const response = await request(buildApp())
-    .post('/api/ml/running-prediction')
-    .set('Authorization', 'Bearer valid-user-token')
-    .set('Origin', `http://127.0.0.1:${config.server.port}`)
-    .send(payload);
-
-  assert.equal(response.status, 200);
-  assert.equal(response.body.data.predictedTrainingLoadLevel, 'medium');
 });
 
 test('POST /api/auth/register returns user and token', async () => {

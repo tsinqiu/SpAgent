@@ -3,7 +3,7 @@
     <section class="auth-card">
       <div class="auth-topline auth-topline--center">
         <div class="auth-brand auth-brand--plain">
-          <img class="auth-brand__icon" src="/icons/spagent-icon.svg" alt="" />
+          <img class="auth-brand__icon" src="/icons/spagent-icon.png" alt="" />
           <span>
             <strong>SpAgent</strong>
           </span>
@@ -14,7 +14,11 @@
         <h1>注册 SpAgent</h1>
       </div>
 
-      <form class="auth-form" @submit.prevent="submit">
+      <p v-if="!registrationPolicy.allowPublicRegistration" class="form-error" role="alert">
+        当前站点已关闭公开注册，请联系管理员开通账号。
+      </p>
+
+      <form v-else class="auth-form" @submit.prevent="submit">
         <label>
           <span>用户名</span>
           <div class="input-with-icon">
@@ -57,6 +61,14 @@
           </div>
         </label>
 
+        <label v-if="registrationPolicy.inviteCodeRequired">
+          <span>邀请码</span>
+          <div class="input-with-icon">
+            <KeyRound :size="18" />
+            <input v-model.trim="form.inviteCode" autocomplete="one-time-code" placeholder="请输入站点邀请码" required />
+          </div>
+        </label>
+
         <p v-if="localError || authSession.error" class="form-error" role="alert">{{ localError || authSession.error }}</p>
 
         <button class="auth-submit" type="submit" :disabled="authSession.loading">
@@ -74,21 +86,40 @@
 </template>
 
 <script setup>
-import { reactive, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Eye, EyeOff, LockKeyhole, Mail, UserRound } from '@lucide/vue'
+import { Eye, EyeOff, KeyRound, LockKeyhole, Mail, UserRound } from '@lucide/vue'
 
+import { apiClient, unwrapApiResponse } from '@/services/http'
 import { authSession, normalizeRedirect, signUp } from '@/stores/authStore'
 
 const route = useRoute()
 const router = useRouter()
 const showPassword = ref(false)
 const localError = ref('')
+const registrationPolicy = reactive({
+  allowPublicRegistration: true,
+  inviteCodeRequired: false,
+})
 const form = reactive({
   username: '',
   email: '',
   password: '',
   confirmPassword: '',
+  inviteCode: '',
+})
+
+onMounted(async () => {
+  try {
+    const response = await apiClient.get('/system/public-config')
+    const auth = unwrapApiResponse(response.data)?.data?.auth
+    if (auth) {
+      registrationPolicy.allowPublicRegistration = auth.allowPublicRegistration !== false
+      registrationPolicy.inviteCodeRequired = Boolean(auth.inviteCodeRequired)
+    }
+  } catch {
+    // Fallback to default public registration UI
+  }
 })
 
 function validate() {
@@ -104,6 +135,9 @@ function validate() {
   if (form.password !== form.confirmPassword) {
     return '两次输入的密码不一致'
   }
+  if (registrationPolicy.inviteCodeRequired && !form.inviteCode) {
+    return '请输入邀请码'
+  }
   return ''
 }
 
@@ -116,6 +150,7 @@ async function submit() {
       username: form.username,
       email: form.email,
       password: form.password,
+      ...(form.inviteCode ? { inviteCode: form.inviteCode } : {}),
     })
     router.replace(normalizeRedirect(route.query.redirect))
   } catch {
